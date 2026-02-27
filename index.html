@@ -1,0 +1,667 @@
+<div id="avoska-pos-root">
+    <!-- SIDEBAR -->
+    <div class="pos-sidebar">
+        <div class="pos-logo" onclick="POS.toggleUserMenu()" style="cursor:pointer; position:relative;">
+            <img id="pos-cashier-avatar" src="" alt=""
+                style="width:28px; height:28px; border-radius:50%; object-fit:cover; border:2px solid #3498db;">
+            <span style="font-size:12px;">aPOS</span>
+            <!-- User Dropdown Menu -->
+            <div id="pos-user-menu" class="pos-user-dropdown hidden">
+                <div class="pos-user-info">
+                    <img id="pos-menu-avatar" src="" alt=""
+                        style="width:36px; height:36px; border-radius:50%; object-fit:cover;">
+                    <div>
+                        <div id="pos-menu-username" style="font-weight:bold; font-size:13px;"></div>
+                        <div id="pos-menu-email" style="font-size:11px; color:#95a5a6;"></div>
+                    </div>
+                </div>
+                <div class="pos-user-menu-divider"></div>
+                <div class="pos-user-menu-item" onclick="POS.openPosSettings()">⚙️ Настройки</div>
+                <div class="pos-user-menu-item" onclick="POS.changeCashier()">🔄 Сменить кассира</div>
+                <div class="pos-user-menu-divider"></div>
+                <div class="pos-user-menu-item pos-user-menu-danger" onclick="POS.logout()">🚪 Выход</div>
+            </div>
+        </div>
+        <button class="nav-btn active" onclick="switchView('register')" title="F2">🛒</button>
+        <button class="nav-btn" onclick="switchView('history')" title="F3">📋</button>
+        <button class="nav-btn" onclick="switchView('customers')">👥</button>
+        <button class="nav-btn" onclick="switchView('reports')">📊</button>
+        <button class="nav-btn" onclick="switchView('products-edit')">✏️</button>
+        <button class="nav-btn" onclick="POS.sync()" title="Sync (Refresh Data)">🔄</button>
+        <button class="nav-btn" onclick="POS.toggleLang()" title="Switch Language"
+            style="font-size: 14px; font-weight: bold; color:#ecf0f1;">RU</button>
+
+        <div style="flex:1"></div>
+
+        <div style="height:5px;"></div>
+    </div>
+
+    <!-- MAIN LAYOUT (VIEW: REGISTER) -->
+    <div id="view-register" class="pos-view active pos-layout">
+        <!-- LEFT COLUMN: PRODUCTS -->
+        <div class="col-products">
+            <div class="products-header">
+                <div style="position:relative; flex:1;">
+                    <input type="text" id="pos-search" placeholder="🔍 SKU, Name, EAN..." autocomplete="off">
+                    <button id="pos-search-clear" onclick="POS.clearSearch()"
+                        style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; font-size:18px; color:#aaa; cursor:pointer; display:none; padding:4px 8px;">✖</button>
+                </div>
+            </div>
+
+            <!-- FILTERS -->
+            <div id="pos-filters-bar" class="pos-filters-bar"
+                style="display:flex; gap:10px; padding:10px; background:#f4f6f7; overflow-x:auto;">
+                <!-- Generated via JS -->
+            </div>
+
+            <div class="products-list-header">
+                <span data-i18n="img">Фото</span>
+                <span onclick="POS.toggleSort('name')" style="cursor:pointer" data-i18n="name">Название ↕</span>
+                <span onclick="POS.toggleSort('stock')" style="cursor:pointer; text-align:center"
+                    data-i18n="stock">Склад ↕</span>
+                <span onclick="POS.toggleSort('price')" style="cursor:pointer; text-align:right" data-i18n="price">Цена
+                    ↕</span>
+                <span style="text-align:center">+</span>
+            </div>
+
+            <div class="products-scroll-area" id="product-list-container">
+                <!-- Products -->
+            </div>
+        </div>
+
+        <div class="pos-resizer" id="pos-resizer"></div>
+
+        <!-- RIGHT COLUMN: CART -->
+        <div class="col-cart" id="col-cart">
+            <!-- HEADER -->
+            <div class="cart-header">
+                <div class="cart-customer-select" onclick="POS.selectCustomer()">
+                    <span>👤</span> <span id="cart-customer-name">Guest</span>
+                </div>
+                <div id="cart-summary-total" style="font-weight: bold; color: #2ecc71;">$0</div>
+            </div>
+
+            <!-- GRID HEADER -->
+            <div class="cart-items-header">
+                <span data-i18n="img">Фото</span>
+                <span data-i18n="qty">Кол</span>
+                <span data-i18n="name">Название</span>
+                <span data-i18n="price">Цена</span>
+                <span data-i18n="total">Сумма</span>
+                <span data-i18n="del">Уд</span>
+            </div>
+
+            <!-- ITEMS -->
+            <div class="cart-items-container" id="pos-cart-items">
+                <!-- Cart Items Grid -->
+            </div>
+
+            <!-- TOTALS & ACTIONS -->
+            <div class="cart-footer-totals">
+                <div class="cf-total-row">
+                    <span data-i18n="label_total">TOTAL:</span>
+                    <div>
+                        <span id="cart-discount-display"
+                            style="font-size:14px; color:#e74c3c; margin-right:10px; font-weight:normal;"></span>
+                        <span class="cf-total-val" id="cart-total">$0.00</span>
+                    </div>
+                </div>
+                <div class="cart-main-actions">
+                    <button type="button" class="btn-big-clear" onclick="POS.clearCart()" title="F4">🗑</button>
+                    <button type="button" class="btn-big-edit" onclick="POS.editLastItem()"
+                        title="Редактировать последний товар">✏️</button>
+                    <button type="button" class="btn-big-add"
+                        onclick="document.getElementById('modal-custom-product').classList.remove('hidden')"
+                        title="Свободный товар (F1)"
+                        style="background:#3498db; color:#fff; border:none; border-radius:8px; font-size:18px; cursor:pointer; padding:10px 14px;">➕</button>
+                    <button type="button" onclick="POS.openDiscountModal()" title="Скидка"
+                        style="background:#e67e22; color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer; padding:10px 12px;">🏷</button>
+                    <button type="button" onclick="POS.openNoteModal()" title="Примечание к заказу"
+                        style="background:#8e44ad; color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer; padding:10px 12px;">📝</button>
+                    <button type="button" id="btn-payment" class="btn-big-pay" title="F10">
+                        <span data-i18n="btn_pay">PAYMENT</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- TABS (BOTTOM) -->
+            <div class="cart-tabs-container" id="cart-tabs-bar">
+                <!-- Tabs -->
+                <button class="btn-new-tab" onclick="POS.addCart()">+</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- VIEW: HISTORY -->
+    <div id="view-history" class="pos-view hidden">
+        <div class="view-container" style="max-width: 100%; padding: 15px;">
+            <div class="view-header" style="margin-bottom: 15px;">
+                <h2 data-i18n="nav_history">История заказов</h2>
+                <div class="history-stats-top" style="display: flex; gap: 20px;">
+                    <div style="background: #f0f3f6; padding: 10px 20px; border-radius: 8px;">
+                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_today">TODAY</small>
+                        <b id="sb-today-total" style="font-size: 20px; color: #2ecc71;">$0</b>
+                    </div>
+                    <div style="background: #f0f3f6; padding: 10px 20px; border-radius: 8px;">
+                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_orders">ORDERS</small>
+                        <b id="sb-today-count" style="font-size: 20px; color: #3498db;">0</b>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-refresh" onclick="POS.loadHistory()" data-i18n="history_refresh">🔄
+                        Обновить</button>
+                </div>
+            </div>
+            <div class="history-scroll-area">
+                <table class="pos-table" id="history-table">
+                    <thead>
+                        <tr>
+                            <th>N°</th>
+                            <th>Клиент</th>
+                            <th>Платежный</th>
+                            <th>Товары</th>
+                            <th>Дата закрытия</th>
+                            <th>Кассир</th>
+                            <th>Способ & Сумма</th>
+                            <th>Печать</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="8" style="padding:20px; text-align:center;" data-i18n="history_loading">
+                                Загрузка данных...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW: REPORTS -->
+    <div id="view-reports" class="pos-view hidden">
+        <div class="view-container" style="max-width: 100%; padding: 20px;">
+            <div class="view-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <h2 data-i18n="report_title">Отчёт за сегодня</h2>
+                <div style="display:flex; gap:10px;">
+                    <button onclick="POS.sendReport('daily')" class="pos-btn"
+                        style="background:#27ae60; color:#fff; font-size:12px; padding:5px 10px;">
+                        <span data-i18n="report_send_daily">📧 Отправить за день</span>
+                    </button>
+                    <button onclick="POS.sendReport('weekly')" class="pos-btn"
+                        style="background:#2980b9; color:#fff; font-size:12px; padding:5px 10px;">
+                        <span data-i18n="report_send_weekly">📅 За неделю</span>
+                    </button>
+                </div>
+            </div>
+            <div class="reports-layout" style="display: flex; gap: 20px; height: 100%;">
+                <div class="reports-main" style="flex: 2; display: flex; flex-direction: column; gap: 20px;">
+                    <div style="font-size:13px; font-weight:600; color:#7f8c8d; margin-bottom:-10px;"
+                        data-i18n="report_week_chart">Продажи за неделю</div>
+                    <div class="report-chart-placeholder"
+                        style="height: 200px; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px; gap: 5px;">
+                        <!-- Chart rendered by JS -->
+                    </div>
+                    <div class="report-table-area" style="flex: 1; overflow-y: auto;">
+                        <table class="pos-table" id="report-orders-table" style="font-size: 12px;">
+                            <thead>
+                                <tr>
+                                    <th data-i18n="report_order">ЗАКАЗ</th>
+                                    <th data-i18n="report_date">ДАТА</th>
+                                    <th data-i18n="report_total">ИТОГО</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="reports-summary"
+                    style="flex: 1; background: #fdfdfd; border: 1px solid #eee; border-radius: 8px; padding: 20px;">
+                    <h3 data-i18n="report_sales_summary">СВОДКА ПРОДАЖ</h3>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span
+                            data-i18n="report_orders_count">Заказов:</span>
+                        <b id="rep-count">0</b>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span
+                            data-i18n="report_sales_total">Сумма
+                            продаж:</span> <b id="rep-total">$0</b></div>
+                    <hr>
+                    <h4 data-i18n="report_payment_methods">СПОСОБЫ ОПЛАТЫ</h4>
+                    <div id="rep-methods"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW: CUSTOMERS / STAFF -->
+    <div id="view-customers" class="pos-view hidden">
+        <div class="view-container">
+            <div class="view-header"
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0;">
+                <h2 style="margin:0;" data-i18n="customers_staff_title">👥 Клиенты & Сотрудники</h2>
+            </div>
+
+            <!-- TABS -->
+            <div class="customer-tabs"
+                style="display:flex; gap:0; margin:10px 0; border-radius:8px; overflow:hidden; border:2px solid var(--accent);">
+                <button class="customer-tab" id="btn-show-staff" onclick="POS.showStaffList()"
+                    style="flex:1; padding:8px 15px; font-size:13px; font-weight:600; cursor:pointer; border:none; background:var(--accent); color:#fff; transition:all 0.2s;">
+                    <span data-i18n="tab_staff">👔 Сотрудники</span>
+                </button>
+                <button class="customer-tab" id="btn-show-customers" onclick="POS.showCustomerList('customers')"
+                    style="flex:1; padding:8px 15px; font-size:13px; font-weight:600; cursor:pointer; border:none; background:transparent; color:var(--accent); transition:all 0.2s;">
+                    <span data-i18n="tab_customers">🛒 Покупатели</span>
+                </button>
+            </div>
+
+            <!-- SEARCH BAR (For Customers) -->
+            <div id="customer-search-bar" class="hidden" style="padding:0 0 15px 0;">
+                <div style="position:relative;">
+                    <span
+                        style="position:absolute; left:15px; top:50%; transform:translateY(-50%); font-size:18px; color:#aaa;">🔍</span>
+                    <input type="text" id="customer-search-input-full" placeholder="Поиск по имени, email, телефону..."
+                        onkeyup="POS.searchCustomers(this.value, true)"
+                        style="width:100%; padding:14px 15px 14px 45px; font-size:16px; border:2px solid #e0e0e0; border-radius:10px; outline:none; transition:border-color 0.2s; box-sizing:border-box;"
+                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='#e0e0e0'">
+                </div>
+            </div>
+
+            <div class="customers-layout"
+                style="display:flex; flex-direction:column; gap:20px; overflow-y:auto; height:calc(100vh - 280px); padding:5px;">
+
+                <!-- CUSTOMER LIST -->
+                <div id="view-customers-list" class="grid-customers hidden"
+                    style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:15px;">
+                </div>
+
+                <!-- STAFF LIST (Shown by default) -->
+                <div id="view-staff-list" style="padding:0;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW: PRODUCT EDITOR -->
+    <div id="view-products-edit" class="pos-view hidden">
+        <div class="view-container" style="max-width: 100%; padding: 20px;">
+            <div class="view-header" style="margin-bottom: 15px;">
+                <h2 data-i18n="edit_product_title">✏️ Редактор товаров</h2>
+            </div>
+
+            <!-- SEARCH -->
+            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                <div style="position:relative; flex:1;">
+                    <span
+                        style="position:absolute; left:14px; top:50%; transform:translateY(-50%); font-size:16px; color:#aaa;">🔍</span>
+                    <input type="text" id="pe-search-input" placeholder="Поиск по имени, SKU, EAN..."
+                        data-i18n-placeholder="edit_search_placeholder"
+                        style="width:100%; padding:14px 15px 14px 42px; border:2px solid #e0e0e0; border-radius:10px; font-size:15px; outline:none; box-sizing:border-box;"
+                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='#e0e0e0'"
+                        oninput="POS.searchProductForEdit(this.value)">
+                </div>
+            </div>
+
+            <div style="display:flex; gap:20px; height:calc(100vh - 230px);">
+                <!-- SEARCH RESULTS -->
+                <div id="pe-results"
+                    style="flex:1; overflow-y:auto; border:1px solid #eee; border-radius:10px; padding:10px; background:#fafafa;">
+                    <div style="color:#aaa; text-align:center; padding:40px;" data-i18n="edit_search_hint">Введите имя,
+                        SKU или EAN для поиска товара</div>
+                </div>
+
+                <!-- EDIT FORM -->
+                <div id="pe-form-container"
+                    style="flex:1.5; overflow-y:auto; border:1px solid #eee; border-radius:10px; padding:20px; background:#fff; display:none;">
+                    <div
+                        style="display:flex; align-items:center; gap:15px; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #eee;">
+                        <img id="pe-product-image" src=""
+                            style="width:60px; height:60px; object-fit:cover; border-radius:8px; border:1px solid #eee;">
+                        <div>
+                            <div id="pe-product-id" style="font-size:12px; color:#aaa;"></div>
+                            <div id="pe-product-sku" style="font-size:12px; color:#7f8c8d;"></div>
+                        </div>
+                    </div>
+
+                    <div class="pe-field-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                        <!-- Name (full width) -->
+                        <div style="grid-column:1/-1;">
+                            <label class="pe-label" data-i18n="edit_name">Название</label>
+                            <input type="text" id="pe-name" class="pe-input" style="width:100%;">
+                        </div>
+
+                        <!-- Category -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_category">Категория</label>
+                            <select id="pe-category" class="pe-input"></select>
+                        </div>
+
+                        <!-- Brand -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_brand">Бренд</label>
+                            <select id="pe-brand" class="pe-input"></select>
+                        </div>
+
+                        <!-- Tag -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_tag">Тег</label>
+                            <select id="pe-tag" class="pe-input"></select>
+                        </div>
+
+                        <!-- Regular Price -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_regular_price">Базовая цена</label>
+                            <input type="number" id="pe-regular-price" class="pe-input" step="0.01">
+                        </div>
+
+                        <!-- Sale Price -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_sale_price">Акционная цена</label>
+                            <input type="number" id="pe-sale-price" class="pe-input" step="0.01" placeholder="—">
+                        </div>
+
+                        <!-- Cost -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_cost">Себестоимость</label>
+                            <input type="number" id="pe-cost" class="pe-input" step="0.01">
+                        </div>
+
+                        <!-- Stock -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_stock">Запасы</label>
+                            <input type="number" id="pe-stock" class="pe-input" step="1">
+                        </div>
+
+                        <!-- Visibility -->
+                        <div>
+                            <label class="pe-label" data-i18n="edit_visibility">Видимость</label>
+                            <select id="pe-visibility" class="pe-input">
+                                <option value="visible">Visible</option>
+                                <option value="catalog">Catalog only</option>
+                                <option value="search">Search only</option>
+                                <option value="hidden">Hidden</option>
+                            </select>
+                        </div>
+
+                        <!-- EAN (read-only info) -->
+                        <div>
+                            <label class="pe-label">EAN</label>
+                            <input type="text" id="pe-ean" class="pe-input">
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div style="display:flex; gap:10px; margin-top:25px; padding-top:15px; border-top:2px solid #eee;">
+                        <button onclick="POS.saveProductEdit()" id="pe-save-btn"
+                            style="flex:1; padding:14px; background:var(--accent); color:#fff; border:none; border-radius:10px; font-size:16px; font-weight:bold; cursor:pointer;">
+                            💾 <span data-i18n="edit_save">Сохранить</span>
+                        </button>
+                        <button onclick="POS.cancelProductEdit()"
+                            style="padding:14px 25px; background:#ecf0f1; color:#7f8c8d; border:none; border-radius:10px; font-size:14px; cursor:pointer;">
+                            <span data-i18n="btn_cancel">Отмена</span>
+                        </button>
+                    </div>
+
+                    <div id="pe-save-status" style="margin-top:10px; text-align:center; font-size:13px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOBILE TABS -->
+    <div class="mobile-tabs-container">
+        <div class="mobile-tab active" id="tab-products" onclick="POS.switchMobileTab('products')">
+            <span style="font-size: 16px;">🛒</span> <span data-i18n="nav_products">Товары</span>
+        </div>
+        <div class="mobile-tab" id="tab-cart" onclick="POS.switchMobileTab('cart')" style="white-space:nowrap;">
+            <span style="font-size: 16px;">🛍️</span> <span data-i18n="nav_cart">Корзина</span>
+        </div>
+    </div>
+
+    <!-- STATUS BAR (FIXED BOTTOM) -->
+    <div class="pos-status-bar-fixed">
+
+        <div class="status-item" onclick="POS.openCustomProductModal()" style="cursor:pointer"
+            title="F1: Свободный товар">
+            <span class="status-key">F1</span> <span class="f-label" data-i18n="custom_product">Свободный товар</span>
+        </div>
+        <div class="status-item" onclick="switchView('register')" style="cursor:pointer" title="F2: Касса">
+            <span class="status-key">F2</span> <span class="f-label" data-i18n="nav_register">Касса</span>
+        </div>
+        <div class="status-item" onclick="switchView('history')" style="cursor:pointer" title="F3: История">
+            <span class="status-key">F3</span> <span class="f-label" data-i18n="nav_history">История</span>
+        </div>
+        <div class="status-item" onclick="POS.clearCart()" style="cursor:pointer" title="F4: Очистить корзину">
+            <span class="status-key">F4</span> <span class="f-label" data-i18n="clear_cart">Очистить</span>
+        </div>
+        <div class="status-item" onclick="POS.openCheckout()" style="cursor:pointer" title="F10: ОПЛАТА">
+            <span class="status-key">F10</span> <span class="f-label" data-i18n="btn_pay">ОПЛАТА</span>
+        </div>
+        <div class="status-item" id="shift-time-display" style="color: #bdc3c7;">
+            Понедельник 19:14 (до конца смены 1:45) (график 9:00 - 21:00)
+        </div>
+
+        <div id="status-info-right"
+            style="margin-left: auto; display: flex; align-items: center; gap: 15px; color: #bdc3c7; margin-right: 15px;">
+            <div id="status-sync" style="font-size: 11px; opacity: 0.7; white-space:nowrap;">🔄 --</div>
+            <div id="status-version" style="font-size: 11px; opacity: 0.7;"></div>
+            <div id="status-weather" onclick="POS.fetchWeather()"
+                style="font-size: 13px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: 0.2s;"
+                onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+                <span id="weather-icon">☀️</span>
+                <span id="weather-temp">--°C</span>
+            </div>
+        </div>
+
+        <div class="status-item" style="font-weight:bold;" id="status-msg">Online</div>
+    </div>
+    <!-- Main container continues to include modals -->
+
+    <!-- CHECKOUT MODAL (F10) -->
+    <div id="modal-checkout" class="modal-overlay hidden">
+        <div class="checkout-modal">
+            <div class="cm-left">
+                <h3 data-i18n="order_summary">Сводка заказа</h3>
+                <div id="checkout-items-list" style="font-size: 13px;"></div>
+            </div>
+            <div class="cm-right">
+                <h2 id="checkout-total-display"
+                    style="text-align: right; color: var(--accent); font-size: 32px; margin-top: 0;"></h2>
+
+                <div class="pay-methods-grid">
+                    <div class="pm-btn active" data-pm="pos_cash" onclick="POS.setPaymentMethod('pos_cash')"
+                        data-i18n="pm_cash">💵 НАЛИЧНЫЕ</div>
+                    <div class="pm-btn" data-pm="pos_card" onclick="POS.setPaymentMethod('pos_card')"
+                        data-i18n="pm_card">💳
+                        КАРТА</div>
+                    <div class="pm-btn" data-pm="usdt" onclick="POS.setPaymentMethod('usdt')">💲 USDT</div>
+                    <div class="pm-btn" data-pm="alias_transfer" onclick="POS.setPaymentMethod('alias_transfer')">🏦
+                        ALIAS</div>
+                </div>
+
+                <div id="pm-cash-details">
+                    <label style="display:block; margin-bottom:5px; font-weight:bold;"
+                        data-i18n="label_tendered">Получено:</label>
+                    <input type="number" id="pm-tendered"
+                        style="width:100%; padding:15px; font-size:24px; border:1px solid #ddd; margin-bottom:10px;"
+                        placeholder="0.00" oninput="POS.calcChange()">
+                    <div style="font-size:18px; font-weight:bold;"><span data-i18n="label_change">Сдача:</span> <span
+                            id="pm-change-val" style="color:var(--accent)">0.00</span></div>
+                </div>
+
+                <div id="pm-usdt-details" class="hidden"
+                    style="border-top:1px solid #eee; padding-top:10px; margin-top:10px;">
+                    <div style="font-size: 13px; color: #7f8c8d; margin-bottom: 5px;">
+                        Rate (Cripto): <span id="usdt-rate-display" style="font-weight:bold;">Loading...</span>
+                    </div>
+                    <div style="font-size: 18px; font-weight: bold; color: var(--accent); margin-bottom: 15px;">
+                        Total USDT: <span id="usdt-total-display">$0.00</span>
+                    </div>
+
+                    <label style="display:block; margin-bottom:5px; font-weight:bold;"
+                        data-i18n="label_tendered">Получено (USDT $100 bills):</label>
+                    <div style="display:flex; gap:5px; margin-bottom:10px;">
+                        <input type="number" id="pm-usdt-tendered"
+                            style="flex:1; padding:10px; font-size:20px; border:1px solid #ddd;" placeholder="0"
+                            oninput="POS.calcUsdtChange()">
+                    </div>
+
+                    <div style="font-size:14px;">Change (USDT): <strong id="usdt-change-usd">0.00</strong></div>
+                    <div style="font-size:16px; color:green; margin-top:5px;">Change (ARS): <strong
+                            id="usdt-change-ars">$0</strong></div>
+                </div>
+
+                <button id="btn-confirm-pay" class="btn-finish-pay" onclick="POS.submitOrder()"
+                    data-i18n="btn_confirm">✅
+                    ПОДТВЕРДИТЬ</button>
+                <button
+                    style="margin-top:10px; background:none; border:none; text-decoration:underline; cursor:pointer;"
+                    onclick="POS.closeModal('modal-checkout')" data-i18n="btn_cancel">Отмена (Esc)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM PRODUCT MODAL (F1) -->
+    <div id="modal-custom-product" class="modal-overlay hidden">
+        <div
+            style="background:#fff; padding:30px; border-radius:10px; width:400px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+            <h2 data-i18n="custom_product">Свободный товар</h2>
+            <form onsubmit="POS.addCustomProduct(event)">
+                <input type="number" id="custom-price"
+                    style="width:100%; padding:15px; font-size:24px; margin-bottom:15px; border:1px solid #bdc3c7;"
+                    placeholder="Price ($)" required autofocus step="0.01">
+                <input type="text" id="custom-name"
+                    style="width:100%; padding:10px; font-size:16px; margin-bottom:20px; border:1px solid #bdc3c7;"
+                    placeholder="Name (Optional)">
+                <button type="submit"
+                    style="width:100%; padding:15px; background:var(--accent); color:#fff; border:none; font-size:18px; font-weight:bold; cursor:pointer;"
+                    data-i18n="add_to_cart">ДОБАВИТЬ В КОРЗИНУ</button>
+            </form>
+            <button onclick="POS.closeModal('modal-custom-product')"
+                style="background:none; border:none; margin-top:10px; text-decoration:underline; cursor:pointer;"
+                data-i18n="close">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- CUSTOMER SELECT MODAL -->
+    <div id="modal-customer" class="modal-overlay hidden">
+        <div class="customer-modal">
+            <h2 style="margin:0 0 15px 0; display:flex; align-items:center; gap:10px;">
+                <span style="font-size:24px;">👤</span>
+                <span data-i18n="select_customer">Выбор клиента</span>
+            </h2>
+            <div style="position:relative; margin-bottom:15px;">
+                <span
+                    style="position:absolute; left:14px; top:50%; transform:translateY(-50%); font-size:16px; color:#aaa;">🔍</span>
+                <input type="text" id="customer-search-input" placeholder="Поиск по имени, email, телефону..."
+                    oninput="POS.searchCustomers(this.value)"
+                    style="width:100%; padding:12px 15px 12px 42px; border:2px solid #e0e0e0; border-radius:10px; font-size:15px; outline:none; transition:border-color 0.2s; box-sizing:border-box;"
+                    onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='#e0e0e0'">
+            </div>
+            <div id="customer-results-list" class="customer-list"></div>
+            <div style="margin-top:15px; display:flex; gap:10px;">
+                <button class="btn-cancel" onclick="POS.closeModal('modal-customer')" data-i18n="close"
+                    style="flex:1; padding:12px; border-radius:10px; font-size:14px; font-weight:600;">Закрыть</button>
+                <button class="btn-action" onclick="POS.setCustomer(null)"
+                    style="flex:1; padding:12px; border-radius:10px; font-size:14px; font-weight:600; background:#95a5a6;">👤
+                    Гость</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EDIT TOTAL MODAL -->
+    <div id="modal-edit-total" class="modal-overlay hidden">
+        <div class="edit-total-modal">
+            <h2 data-i18n="edit_total">Редактировать итог</h2>
+            <div class="current-total-info">
+                <span>Current:</span>
+                <span id="edit-total-current-val"></span>
+            </div>
+            <input type="number" id="edit-total-input" step="0.01" placeholder="New Total">
+            <div style="margin-top:20px; display:flex; gap:10px;">
+                <button class="btn-cancel" onclick="POS.closeModal('modal-edit-total')"
+                    data-i18n="btn_cancel">Отмена</button>
+                <button class="btn-action" onclick="POS.applyNewTotal()">Применить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RECEIPT MODAL -->
+    <div id="modal-receipt" class="modal-overlay hidden">
+        <div class="receipt-modal-content">
+            <div class="modal-header">
+                <h3 data-i18n="receipt_title">Чек</h3>
+                <span class="close-modal" onclick="POS.closeReceiptModal()">&times;</span>
+            </div>
+            <div id="receipt-preview-area"></div>
+            <div class="modal-footer">
+                <button class="btn-print" onclick="window.print()" data-i18n="btn_print">🖨 Печать</button>
+                <button class="btn-close" onclick="POS.closeReceiptModal()" data-i18n="close">Закрыть</button>
+            </div>
+            <div class="receipt-autoclose-track">
+                <div class="receipt-autoclose-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DISCOUNT MODAL -->
+    <div id="modal-discount" class="modal-overlay hidden">
+        <div
+            style="background:#fff; padding:25px; border-radius:12px; width:340px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+            <h3 style="margin:0 0 20px 0; font-size:18px; color:#2c3e50;">🏷 Скидка на корзину</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                <button onclick="POS.applyDiscount(10)"
+                    style="padding:14px; font-size:16px; font-weight:bold; border:2px solid #27ae60; background:#eafaf1; color:#27ae60; border-radius:10px; cursor:pointer; transition:all 0.2s;"
+                    onmouseover="this.style.background='#27ae60'; this.style.color='#fff'"
+                    onmouseout="this.style.background='#eafaf1'; this.style.color='#27ae60'">-10%</button>
+                <button onclick="POS.applyDiscount(20)"
+                    style="padding:14px; font-size:16px; font-weight:bold; border:2px solid #2980b9; background:#ebf5fb; color:#2980b9; border-radius:10px; cursor:pointer; transition:all 0.2s;"
+                    onmouseover="this.style.background='#2980b9'; this.style.color='#fff'"
+                    onmouseout="this.style.background='#ebf5fb'; this.style.color='#2980b9'">-20%</button>
+            </div>
+            <div style="margin-bottom:15px;">
+                <div style="display:flex; gap:8px;">
+                    <input type="number" id="discount-custom-val" placeholder="%" min="1" max="99" step="1"
+                        style="flex:1; padding:12px; font-size:16px; border:2px solid #ddd; border-radius:10px; text-align:center; outline:none;"
+                        onfocus="this.style.borderColor='#e67e22'" onblur="this.style.borderColor='#ddd'">
+                    <button
+                        onclick="POS.applyDiscount(parseFloat(document.getElementById('discount-custom-val').value))"
+                        style="padding:12px 18px; font-size:14px; font-weight:bold; background:#e67e22; color:#fff; border:none; border-radius:10px; cursor:pointer;">Применить</button>
+                </div>
+            </div>
+            <button onclick="POS.applyDiscountCost()"
+                style="width:100%; padding:12px; font-size:14px; font-weight:bold; background:#8e44ad; color:#fff; border:none; border-radius:10px; cursor:pointer; margin-bottom:12px;">💰
+                По себестоимости</button>
+            <button onclick="POS.resetDiscount()"
+                style="width:100%; padding:10px; font-size:13px; background:#ecf0f1; color:#7f8c8d; border:none; border-radius:10px; cursor:pointer; margin-bottom:8px;">↩
+                Сбросить скидки</button>
+            <button onclick="POS.closeModal('modal-discount')"
+                style="background:none; border:none; margin-top:5px; text-decoration:underline; cursor:pointer; color:#95a5a6; font-size:13px;"
+                data-i18n="close">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- ORDER NOTE MODAL -->
+    <div id="modal-order-note" class="modal-overlay hidden">
+        <div
+            style="background:#fff; padding:30px; border-radius:10px; width:450px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+            <h2 style="margin:0 0 15px 0; color:#2c3e50; font-size:22px;">📝 Примечание к заказу</h2>
+            <textarea id="order-note-input" rows="4"
+                style="width:100%; padding:15px; font-size:16px; border:1px solid #bdc3c7; border-radius:8px; resize:vertical; outline:none; box-sizing:border-box; margin-bottom:20px;"
+                placeholder="Введите заметку..." onfocus="this.style.borderColor='#8e44ad'"
+                onblur="this.style.borderColor='#bdc3c7'"></textarea>
+            <div style="display:flex; gap:10px;">
+                <button onclick="POS.closeModal('modal-order-note')"
+                    style="flex:1; padding:14px; background:#ecf0f1; color:#7f8c8d; border:none; border-radius:8px; font-size:16px; cursor:pointer; font-weight:600;">
+                    Отмена
+                </button>
+                <button onclick="POS.saveOrderNote()"
+                    style="flex:1; padding:14px; background:#8e44ad; color:#fff; border:none; border-radius:8px; font-size:16px; font-weight:bold; cursor:pointer;">
+                    Добавить заметку
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RECEIPT (Hidden for print layout) -->
+    <div id="receipt-container" class="print-only"></div>
+</div>
