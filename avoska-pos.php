@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Avoska POS
  * Description: Custom Web Point of Sale for WooCommerce. Shortcode: [avoska_pos]
- * Version: 2.5.10
+ * Version: 2.5.22
  * Author: DarkXakep y Antigravity
  */
 
@@ -37,6 +37,9 @@ add_action('wp_ajax_nopriv_avoska_pos_print_receipt', 'avoska_pos_print_receipt'
 
 // CHANGE CASHIER (instant logout + redirect to /apos/)
 add_action('wp_ajax_avoska_pos_change_cashier', 'avoska_pos_change_cashier');
+
+// LOGOUT (instant logout + redirect to homepage)
+add_action('wp_ajax_avoska_pos_logout', 'avoska_pos_logout');
 
 // --- AUTO REPORT CRON ---
 add_action('avoska_pos_auto_report_event', 'avoska_pos_cron_send_daily_report');
@@ -152,6 +155,12 @@ function avoska_pos_change_cashier() {
     exit;
 }
 
+function avoska_pos_logout() {
+    wp_logout();
+    wp_redirect(home_url('/'));
+    exit;
+}
+
 function avoska_pos_print_receipt() {
     if (!isset($_GET['order_id'])) {
         wp_die('No Order ID');
@@ -230,6 +239,8 @@ function avoska_render_pos()
     </style>
 
     <?php echo $html; ?>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <script>
         const POS_API_URL = '<?php echo admin_url('admin-ajax.php'); ?>';
@@ -714,7 +725,7 @@ function avoska_pos_get_weekly_orders()
         $d = clone $now;
         $d->modify("-{$i} days");
         $key = $d->format('Y-m-d');
-        $daily[$key] = ['total' => 0, 'count' => 0, 'methods' => []];
+        $daily[$key] = ['total' => 0, 'count' => 0, 'methods' => [], 'hourly' => array_fill(0, 48, 0)];
     }
 
     foreach ($orders as $o) {
@@ -729,12 +740,22 @@ function avoska_pos_get_weekly_orders()
             $daily[$key]['total'] += $total;
             $daily[$key]['count']++;
 
+            $hour   = (int)$date_completed->format('G');
+            $minute = (int)$date_completed->format('i');
+            $bucket = $hour * 2 + ($minute >= 30 ? 1 : 0); // 30-min bucket (0-47)
+            $daily[$key]['hourly'][$bucket] += $total;
+
             $method = $o->get_payment_method_title() ?: 'Other';
             if (!isset($daily[$key]['methods'][$method])) {
                 $daily[$key]['methods'][$method] = 0;
             }
             $daily[$key]['methods'][$method] += $total;
         }
+    }
+
+    // Free MySQL result set before sending response to prevent 'Commands out of sync'
+    if ( ! empty( $wpdb->last_result ) ) {
+        $wpdb->flush();
     }
 
     wp_send_json_success(['weekly' => $daily]);
@@ -1308,3 +1329,4 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
         return ['success' => false, 'message' => 'Ошибка отправки почты. Проверьте настройки сервера.'];
     }
 }
+

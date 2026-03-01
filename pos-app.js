@@ -142,6 +142,8 @@
             // Reports
             report_send_daily: "📧 Отправить за день",
             report_send_weekly: "📅 За неделю",
+            report_send_hourly: "🕒 По часам",
+            report_hourly_chart: "Продажи по часам",
             report_confirm_daily: "Отправить отчет за сегодня?",
             report_confirm_weekly: "Отправить отчет за неделю?",
             // Search placeholder
@@ -251,6 +253,8 @@
             // Reports
             report_send_daily: "📧 Enviar del día",
             report_send_weekly: "📅 De la semana",
+            report_send_hourly: "🕒 Por hora",
+            report_hourly_chart: "Ventas por hora",
             report_confirm_daily: "¿Enviar informe del día?",
             report_confirm_weekly: "¿Enviar informe de la semana?",
             // Search placeholder
@@ -1027,12 +1031,13 @@
                          </div>
                         </div>
 
-                        <div class="ci-price" style="font-size:13px; font-weight:bold; text-align:right;">
-                            $${parseFloat(item.price).toFixed(2).replace(/\.00$/, '')}
+                        <div class="ci-price" style="font-size:13px; font-weight:bold; text-align:right; display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:2px; white-space:nowrap;">
+                            ${item.original_price && item.price !== item.original_price ? `<span style="text-decoration:line-through; color:#95a5a6; font-size:11px; font-weight:normal;">${POS.formatPrice(item.original_price)}</span>` : ''}
+                            <span>${POS.formatPrice(item.price)}</span>
                         </div>
 
-                        <div class="ci-total" onclick="POS.editItemTotal(${index})" style="font-weight:bold; text-align:right; font-size:14px; cursor:pointer; color:#2c3e50; background:#f8f9fa; padding:4px; border-radius:4px; border:1px dashed #bdc3c7;">
-                            $${totalItem}
+                        <div class="ci-total" onclick="POS.editItemTotal(${index})" style="font-weight:bold; text-align:right; font-size:14px; cursor:pointer; color:#2c3e50; background:#f8f9fa; padding:4px; border-radius:4px; border:1px dashed #bdc3c7; white-space:nowrap;">
+                            ${POS.formatPrice(totalItem)}
                         </div>
                         <div class="ci-remove" onclick="POS.removeFromCart(${index})" style="color:#e74c3c; cursor:pointer; text-align:center; font-weight:bold; font-size:18px;">×</div>
                     </div>
@@ -1057,7 +1062,7 @@
             const totFixed = Math.round(total * 100) / 100;
             if (origFixed > totFixed && totFixed > 0) {
                 const discountVal = origFixed - totFixed;
-                discountTotalEl.textContent = `Скидка: ${POS.formatPrice(discountVal)}`;
+                discountTotalEl.textContent = `${POS.t('discount')}: ${POS.formatPrice(discountVal)}`;
             } else {
                 discountTotalEl.textContent = '';
             }
@@ -1067,10 +1072,20 @@
         const summaryTotal = document.getElementById('cart-summary-total');
         if (summaryTotal) summaryTotal.textContent = formattedTotal;
 
-        // Update customer display
+        // Update customer display (pill badge)
         const custNameEl = document.getElementById('cart-customer-name');
+        const custBadge = document.getElementById('cart-customer-badge');
+        const custClear = document.getElementById('cart-customer-clear');
         if (custNameEl) {
-            custNameEl.textContent = cart.customer ? cart.customer.name : POS.t('guest');
+            const isGuest = !cart.customer;
+            custNameEl.textContent = isGuest ? POS.t('guest') : cart.customer.name;
+            if (custBadge) {
+                custBadge.classList.toggle('guest', isGuest);
+                custBadge.classList.toggle('has-customer', !isGuest);
+            }
+            if (custClear) {
+                custClear.style.display = isGuest ? 'none' : 'inline-flex';
+            }
         }
 
         // Update checkout total if open
@@ -1167,9 +1182,8 @@
     logout: () => {
         if (!confirm('Выход из POS?')) return;
         document.getElementById('pos-user-menu')?.classList.add('hidden');
-        if (typeof POS_USER !== 'undefined' && POS_USER.logout_url) {
-            window.location.href = POS_USER.logout_url;
-        }
+        // Instant logout via AJAX + redirect to homepage
+        window.location.href = POS_API_URL + '?action=avoska_pos_logout';
     },
 
     openEditTotal: () => {
@@ -1370,7 +1384,9 @@
     // --- HISTORY & REPORTS ---
     loadHistory: async () => {
         const tbody = document.querySelector('#history-table tbody');
+        const loader = document.getElementById('reports-loader');
         try {
+            if (loader) loader.classList.remove('hidden');
             if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px;">${POS.t('history_loading')}</td></tr>`;
 
             // Load today's orders and weekly data in parallel
@@ -1392,10 +1408,13 @@
             if (weeklyData.success && weeklyData.data.weekly) {
                 POS.weeklyCache = weeklyData.data.weekly;
                 POS.renderChart(weeklyData.data.weekly);
+                POS.renderHourlyChart(weeklyData.data.weekly);
             }
         } catch (e) {
             console.error(e);
             if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:red; padding:20px;">Network Error: ${e.message}</td></tr>`;
+        } finally {
+            if (loader) loader.classList.add('hidden');
         }
     },
 
@@ -1470,7 +1489,7 @@
 
             return `
             <tr class="${rowClass}">
-                <td>#${o.id}</td>
+                <td><a href="/wp-admin/admin.php?page=wc-orders&action=edit&id=${o.id}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:bold;">#${o.id}</a></td>
                 <td>${o.customer || POS.t('guest_label')}</td>
                 <td><span class="status-badge ${statusStr}">${statusStr}</span></td>
                 <td>
@@ -1582,6 +1601,137 @@
         placeholder.style.alignItems = 'stretch';
     },
 
+    renderHourlyChart: (weeklyData) => {
+        const ctx = document.getElementById('hourlySalesChart');
+        if (!ctx) return;
+
+        // Ensure chart.js is available
+        if (typeof Chart === 'undefined') {
+            console.warn("Chart.js is not loaded.");
+            return;
+        }
+
+        if (POS.hourlyChartInstance) {
+            POS.hourlyChartInstance.destroy();
+        }
+
+        const dayNames = POS.i18n[POS.lang].dayNamesShort;
+        const keys = Object.keys(weeklyData).sort();
+        const todayKey = keys.length > 0 ? keys[keys.length - 1] : null;
+
+        const datasets = [];
+        // Rainbow colors: Кр Ор Жёл Зел Гол Син Фио
+        const colors = [
+            '#e74c3c', // Sun — красный
+            '#e67e22', // Mon — оранжевый
+            '#f1c40f', // Tue — жёлтый
+            '#2ecc71', // Wed — зелёный
+            '#3498db', // Thu — голубой
+            '#2c3e8c', // Fri — синий
+            '#9b59b6'  // Sat — фиолетовый
+        ];
+
+        // Calculate current 30-min bucket index for today
+        const now = new Date();
+        const currentBucket = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+        // Chart shows buckets 18..42 (09:00..21:00), so index in sliced array = currentBucket - 18
+        const currentSliceIdx = currentBucket - 18;
+
+        let todayDataset = null;
+
+        keys.forEach((k) => {
+            const date = new Date(k + 'T12:00:00');
+            const dayIndex = date.getDay();
+            const label = dayNames[dayIndex] + ' ' + k.split('-')[2];
+            const hourlyArr = weeklyData[k].hourly || new Array(48).fill(0);
+
+            // Slice to 09:00–21:00 (buckets 18..42 inclusive = 25 points)
+            const slicedData = hourlyArr.slice(18, 43);
+
+            const isToday = (k === todayKey);
+
+            // For today: trim data after the current time so the line doesn't drop to 0
+            if (isToday && currentSliceIdx >= 0 && currentSliceIdx < slicedData.length) {
+                for (let i = currentSliceIdx + 1; i < slicedData.length; i++) {
+                    slicedData[i] = null; // null = Chart.js will not draw this point
+                }
+            }
+
+            const totalForDay = slicedData.reduce((a, b) => (a || 0) + (b || 0), 0);
+
+            if (totalForDay > 0 || isToday) {
+                const baseColor = colors[dayIndex];
+                const displayColor = isToday ? baseColor : baseColor + '55'; // 33% opacity for past days
+                const ds = {
+                    label: isToday ? label + (POS.lang === 'RU' ? ' (Сегодня)' : ' (Hoy)') : label,
+                    data: slicedData,
+                    borderColor: isToday ? baseColor : displayColor,
+                    backgroundColor: isToday ? baseColor : displayColor,
+                    borderWidth: isToday ? 4 : 2,
+                    pointRadius: isToday ? 3 : 1,
+                    fill: false,
+                    tension: 0.3,
+                    spanGaps: isToday ? false : true, // Past days: draw through zeros; Today: stop at null
+                    order: isToday ? 0 : 1 // Draw today on top
+                };
+                if (isToday) {
+                    todayDataset = ds; // Save for later, push last
+                } else {
+                    datasets.push(ds);
+                }
+            }
+        });
+
+        // Push today last so it appears at the end of the legend
+        if (todayDataset) datasets.push(todayDataset);
+
+        // Generate labels: 09:00, 09:30, 10:00 ... 21:00
+        const labels = [];
+        for (let i = 18; i <= 42; i++) {
+            const h = Math.floor(i / 2);
+            const m = (i % 2 === 0) ? '00' : '30';
+            labels.push(`${h}:${m}`);
+        }
+
+        POS.hourlyChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { font: { size: 10 }, maxTicksLimit: 13 }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { font: { size: 10 }, callback: function (val) { return '$' + (val > 999 ? (val / 1000).toFixed(1) + 'k' : val); } }
+                    }
+                }
+            }
+        });
+    },
+
+    sendReport: async (type) => {
+        if (type === 'hourly') {
+            const el = document.querySelector('.report-chart-placeholder');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        // Placeholder for future email sending logic since the PHP endpoint isn't fully set up yet
+        alert('Функция отправки email находится в разработке.');
+    },
+
     updateSidebarStats: (orders) => {
         const now = new Date();
         const today = now.getFullYear() + '-' + (now.getMonth() + 1).toString().padStart(2, '0') + '-' + now.getDate().toString().padStart(2, '0');
@@ -1637,7 +1787,7 @@
         if (repTable) {
             repTable.innerHTML = todaysOrders.map(o => `
                 <tr>
-                    <td>#${o.id}</td>
+                    <td><a href="/wp-admin/admin.php?page=wc-orders&action=edit&id=${o.id}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:bold;">#${o.id}</a></td>
                     <td>${o.date}</td>
                     <td style="font-weight:bold;">$${o.total.toFixed(0)}</td>
                 </tr>

@@ -22,14 +22,45 @@
                 <div class="pos-user-menu-item pos-user-menu-danger" onclick="POS.logout()">🚪 Выход</div>
             </div>
         </div>
-        <button class="nav-btn active" onclick="switchView('register')" title="F2">🛒</button>
-        <button class="nav-btn" onclick="switchView('history')" title="F3">📋</button>
-        <button class="nav-btn" onclick="switchView('customers')">👥</button>
-        <button class="nav-btn" onclick="switchView('reports')">📊</button>
-        <button class="nav-btn" onclick="switchView('products-edit')">✏️</button>
-        <button class="nav-btn" onclick="POS.sync()" title="Sync (Refresh Data)">🔄</button>
+        <button class="nav-btn active" onclick="switchView('register')" title="F2"><svg width="20" height="20"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round">
+                <circle cx="8" cy="21" r="1" />
+                <circle cx="19" cy="21" r="1" />
+                <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+            </svg></button>
+        <button class="nav-btn" onclick="switchView('history')" title="F3"><svg width="20" height="20"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round">
+                <path d="M12 8v4l3 3" />
+                <circle cx="12" cy="12" r="10" />
+            </svg></button>
+        <button class="nav-btn" onclick="switchView('customers')"><svg width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg></button>
+        <button class="nav-btn" onclick="switchView('reports')"><svg width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 20V10" />
+                <path d="M12 20V4" />
+                <path d="M6 20v-6" />
+            </svg></button>
+        <button class="nav-btn" onclick="switchView('products-edit')"><svg width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            </svg></button>
+        <button class="nav-btn" onclick="POS.sync()" title="Sync"><svg width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M16 16h5v5" />
+            </svg></button>
         <button class="nav-btn" onclick="POS.toggleLang()" title="Switch Language"
-            style="font-size: 14px; font-weight: bold; color:#ecf0f1;">RU</button>
+            style="font-size: 13px; font-weight: 700; color:#ecf0f1; letter-spacing: 0.5px;">RU</button>
 
         <div style="flex:1"></div>
 
@@ -75,10 +106,13 @@
         <div class="col-cart" id="col-cart">
             <!-- HEADER -->
             <div class="cart-header">
-                <div class="cart-customer-select" onclick="POS.selectCustomer()">
-                    <span>👤</span> <span id="cart-customer-name">Guest</span>
+                <div class="cart-customer-select guest" id="cart-customer-badge" onclick="POS.selectCustomer()">
+                    <span class="customer-icon">👤</span>
+                    <span id="cart-customer-name">Гость</span>
+                    <span class="customer-clear" id="cart-customer-clear"
+                        onclick="event.stopPropagation(); POS.setCustomer(null)" style="display:none">×</span>
                 </div>
-                <div id="cart-summary-total" style="font-weight: bold; color: #2ecc71;">$0</div>
+                <div id="cart-summary-total" style="font-weight: bold; color: #2ecc71; font-size: 18px;">$0</div>
             </div>
 
             <!-- GRID HEADER -->
@@ -107,17 +141,45 @@
                     </div>
                 </div>
                 <div class="cart-main-actions">
-                    <button type="button" class="btn-big-clear" onclick="POS.clearCart()" title="F4">🗑</button>
+                    <button type="button" class="btn-big-clear" onclick="POS.clearCart()" title="F4"><svg width="18"
+                            height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                        </svg></button>
                     <button type="button" class="btn-big-edit" onclick="POS.editLastItem()"
-                        title="Редактировать последний товар">✏️</button>
-                    <button type="button" class="btn-big-add"
+                        title="Редактировать последний товар"><svg width="18" height="18" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                        </svg></button>
+                    <button type="button" class="btn-action-icon"
                         onclick="document.getElementById('modal-custom-product').classList.remove('hidden')"
                         title="Свободный товар (F1)"
-                        style="background:#3498db; color:#fff; border:none; border-radius:8px; font-size:18px; cursor:pointer; padding:10px 14px;">➕</button>
+                        style="background:#3498db; color:#fff; border:none; border-radius:10px; cursor:pointer; padding:10px 14px; display:flex; align-items:center; justify-content:center; transition: all 0.2s; box-shadow: 0 2px 6px rgba(52,152,219,0.2);"><svg
+                            width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 12h14" />
+                            <path d="M12 5v14" />
+                        </svg></button>
                     <button type="button" onclick="POS.openDiscountModal()" title="Скидка"
-                        style="background:#e67e22; color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer; padding:10px 12px;">🏷</button>
+                        style="background:#e67e22; color:#fff; border:none; border-radius:10px; cursor:pointer; padding:10px 14px; display:flex; align-items:center; justify-content:center; transition: all 0.2s; box-shadow: 0 2px 6px rgba(230,126,34,0.2);"><svg
+                            width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="19" cy="5" r="2" />
+                            <circle cx="5" cy="19" r="2" />
+                            <line x1="2" x2="22" y1="2" y2="22" />
+                        </svg></button>
                     <button type="button" onclick="POS.openNoteModal()" title="Примечание к заказу"
-                        style="background:#8e44ad; color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer; padding:10px 12px;">📝</button>
+                        style="background:#8e44ad; color:#fff; border:none; border-radius:10px; cursor:pointer; padding:10px 14px; display:flex; align-items:center; justify-content:center; transition: all 0.2s; box-shadow: 0 2px 6px rgba(142,68,173,0.2);"><svg
+                            width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" x2="8" y1="13" y2="13" />
+                            <line x1="16" x2="8" y1="17" y2="17" />
+                        </svg></button>
                     <button type="button" id="btn-payment" class="btn-big-pay" title="F10">
                         <span data-i18n="btn_pay">PAYMENT</span>
                     </button>
@@ -192,17 +254,50 @@
                         style="background:#2980b9; color:#fff; font-size:12px; padding:5px 10px;">
                         <span data-i18n="report_send_weekly">📅 За неделю</span>
                     </button>
+                    <button onclick="POS.sendReport('hourly')" class="pos-btn"
+                        style="background:#8e44ad; color:#fff; font-size:12px; padding:5px 10px;">
+                        <span data-i18n="report_send_hourly">🕒 По часам</span>
+                    </button>
                 </div>
             </div>
-            <div class="reports-layout" style="display: flex; gap: 20px; height: 100%;">
-                <div class="reports-main" style="flex: 2; display: flex; flex-direction: column; gap: 20px;">
-                    <div style="font-size:13px; font-weight:600; color:#7f8c8d; margin-bottom:-10px;"
+            <div class="reports-layout" style="display: flex; gap: 20px; height: 100%; position:relative;">
+                <!-- Loader Overlay -->
+                <div id="reports-loader" class="hidden"
+                    style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.85); z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:8px;">
+                    <style>
+                        @keyframes spin {
+                            0% {
+                                transform: rotate(0deg);
+                            }
+
+                            100% {
+                                transform: rotate(360deg);
+                            }
+                        }
+                    </style>
+                    <div
+                        style="border:4px solid #f3f3f3; border-top:4px solid var(--accent, #3498db); border-radius:50%; width:40px; height:40px; animation:spin 1s linear infinite;">
+                    </div>
+                    <div style="margin-top:10px; color:var(--accent, #3498db); font-weight:bold; font-size:14px;"
+                        data-i18n="history_loading">Загрузка данных...</div>
+                </div>
+
+                <div class="reports-main"
+                    style="flex: 2; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; padding-right: 10px;">
+                    <div style="font-size:13px; font-weight:600; color:#7f8c8d; margin-bottom:-10px; flex-shrink: 0;"
                         data-i18n="report_week_chart">Продажи за неделю</div>
                     <div class="report-chart-placeholder"
-                        style="height: 200px; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px; gap: 5px;">
+                        style="flex-shrink: 0; min-height: 150px; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; display: flex; align-items: flex-end; padding: 10px; gap: 5px;">
                         <!-- Chart rendered by JS -->
                     </div>
-                    <div class="report-table-area" style="flex: 1; overflow-y: auto;">
+
+                    <div style="flex-shrink: 0; font-size:13px; font-weight:600; color:#7f8c8d; margin-bottom:-10px; margin-top:5px;"
+                        data-i18n="report_hourly_chart">Продажи по часам</div>
+                    <div
+                        style="flex-shrink: 0; height: 250px; background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 10px;">
+                        <canvas id="hourlySalesChart"></canvas>
+                    </div>
+                    <div class="report-table-area" style="flex: 1; min-height: fit-content;">
                         <table class="pos-table" id="report-orders-table" style="font-size: 12px;">
                             <thead>
                                 <tr>
@@ -305,7 +400,8 @@
                 <!-- SEARCH RESULTS -->
                 <div id="pe-results"
                     style="flex:1; overflow-y:auto; border:1px solid #eee; border-radius:10px; padding:10px; background:#fafafa;">
-                    <div style="color:#aaa; text-align:center; padding:40px;" data-i18n="edit_search_hint">Введите имя,
+                    <div style="color:#aaa; text-align:center; padding:40px;" data-i18n="edit_search_hint">Введите
+                        имя,
                         SKU или EAN для поиска товара</div>
                 </div>
 
@@ -422,19 +518,51 @@
 
         <div class="status-item" onclick="POS.openCustomProductModal()" style="cursor:pointer"
             title="F1: Свободный товар">
-            <span class="status-key">F1</span> <span class="f-label" data-i18n="custom_product">Свободный товар</span>
+            <span class="status-key">F1</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8">
+                <path d="M5 12h14" />
+                <path d="M12 5v14" />
+            </svg>
+            <span class="f-label" data-i18n="custom_product">Свободный товар</span>
         </div>
         <div class="status-item" onclick="switchView('register')" style="cursor:pointer" title="F2: Касса">
-            <span class="status-key">F2</span> <span class="f-label" data-i18n="nav_register">Касса</span>
+            <span class="status-key">F2</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8">
+                <circle cx="8" cy="21" r="1" />
+                <circle cx="19" cy="21" r="1" />
+                <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+            </svg>
+            <span class="f-label" data-i18n="nav_register">Касса</span>
         </div>
         <div class="status-item" onclick="switchView('history')" style="cursor:pointer" title="F3: История">
-            <span class="status-key">F3</span> <span class="f-label" data-i18n="nav_history">История</span>
+            <span class="status-key">F3</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8">
+                <path d="M12 8v4l3 3" />
+                <circle cx="12" cy="12" r="10" />
+            </svg>
+            <span class="f-label" data-i18n="nav_history">История</span>
         </div>
         <div class="status-item" onclick="POS.clearCart()" style="cursor:pointer" title="F4: Очистить корзину">
-            <span class="status-key">F4</span> <span class="f-label" data-i18n="clear_cart">Очистить</span>
+            <span class="status-key">F4</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+            <span class="f-label" data-i18n="clear_cart">Очистить</span>
         </div>
         <div class="status-item" onclick="POS.openCheckout()" style="cursor:pointer" title="F10: ОПЛАТА">
-            <span class="status-key">F10</span> <span class="f-label" data-i18n="btn_pay">ОПЛАТА</span>
+            <span class="status-key">F10</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8">
+                <rect width="20" height="14" x="2" y="5" rx="2" />
+                <line x1="2" x2="22" y1="10" y2="10" />
+            </svg>
+            <span class="f-label" data-i18n="btn_pay">ОПЛАТА</span>
         </div>
         <div class="status-item" id="shift-time-display" style="color: #bdc3c7;">
             Понедельник 19:14 (до конца смены 1:45) (график 9:00 - 21:00)
@@ -484,8 +612,9 @@
                     <input type="number" id="pm-tendered"
                         style="width:100%; padding:15px; font-size:24px; border:1px solid #ddd; margin-bottom:10px;"
                         placeholder="0.00" oninput="POS.calcChange()">
-                    <div style="font-size:18px; font-weight:bold;"><span data-i18n="label_change">Сдача:</span> <span
-                            id="pm-change-val" style="color:var(--accent)">0.00</span></div>
+                    <div style="font-size:18px; font-weight:bold;"><span data-i18n="label_change">Сдача:</span>
+                        <span id="pm-change-val" style="color:var(--accent)">0.00</span>
+                    </div>
                 </div>
 
                 <div id="pm-usdt-details" class="hidden"
