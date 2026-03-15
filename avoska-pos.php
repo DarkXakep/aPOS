@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Avoska POS
  * Description: Custom Web Point of Sale for WooCommerce. Shortcode: [avoska_pos]
- * Version: 2.5.22
+ * Version: 2.6.5
  * Author: DarkXakep y Antigravity
  */
 
@@ -20,6 +20,9 @@ add_action('wp_consent_api_registered', function($type) {
 });
 
 // AJAX handlers for logged in users
+// АРХИТЕКТУРА: wp_ajax_* хуки ниже обеспечивают fallback-доступ через
+// стандартный admin-ajax.php?action=avoska_pos_*
+// Основной клиент (JS) использует кастомный роутер avoska_pos_api_handler через 'init'.
 add_action('wp_ajax_avoska_pos_create_order', 'avoska_pos_create_order');
 add_action('wp_ajax_avoska_pos_get_products', 'avoska_pos_get_products');
 add_action('wp_ajax_avoska_pos_get_customers', 'avoska_pos_get_customers');
@@ -32,8 +35,9 @@ add_action('woocommerce_admin_order_data_after_order_details', 'avoska_pos_displ
 // Admin Settings deleted, moved below
 
 // PRINT RECEIPT HANDLER
+// FIX #4: Удалён nopriv хук — неавторизованные больше не получат доступ к чекам
 add_action('wp_ajax_avoska_pos_print_receipt', 'avoska_pos_print_receipt');
-add_action('wp_ajax_nopriv_avoska_pos_print_receipt', 'avoska_pos_print_receipt');
+// add_action('wp_ajax_nopriv_avoska_pos_print_receipt', ...) — removed, intentionally
 
 // CHANGE CASHIER (instant logout + redirect to /apos/)
 add_action('wp_ajax_avoska_pos_change_cashier', 'avoska_pos_change_cashier');
@@ -43,13 +47,14 @@ add_action('wp_ajax_avoska_pos_logout', 'avoska_pos_logout');
 
 // --- AUTO REPORT CRON ---
 add_action('avoska_pos_auto_report_event', 'avoska_pos_cron_send_daily_report');
+// FIX: Используем transient чтобы avoska_pos_schedule_auto_report
+// не выполнял тяжёлую wp_next_scheduled() на каждый admin_init (каждый хит)
 add_action('admin_init', 'avoska_pos_schedule_auto_report');
 register_deactivation_hook(__FILE__, 'avoska_pos_unschedule_auto_report');
 
 function avoska_pos_schedule_auto_report() {
     $enabled = get_option('avoska_pos_auto_report_enabled', 'no');
-    $time_str = get_option('avoska_pos_auto_report_time', '20:58');
-    
+
     if ($enabled !== 'yes') {
         // Disabled — remove cron if exists
         $timestamp = wp_next_scheduled('avoska_pos_auto_report_event');
@@ -58,25 +63,31 @@ function avoska_pos_schedule_auto_report() {
         }
         return;
     }
-    
+
+    // FIX: Transient-защита — проверяем не чаще раза в 5 минут
+    // чтобы не дёргать wp_next_scheduled() на каждый admin_init
+    if (get_transient('avoska_pos_cron_checked')) return;
+    set_transient('avoska_pos_cron_checked', 1, 5 * MINUTE_IN_SECONDS);
+
     // Calculate next run in Buenos Aires timezone
     $tz = new DateTimeZone('America/Argentina/Buenos_Aires');
     $now = new DateTime('now', $tz);
-    
+
+    $time_str = get_option('avoska_pos_auto_report_time', '20:58');
     $parts = explode(':', $time_str);
     $hour = isset($parts[0]) ? intval($parts[0]) : 20;
     $minute = isset($parts[1]) ? intval($parts[1]) : 58;
-    
+
     $target = clone $now;
     $target->setTime($hour, $minute, 0);
-    
+
     // If target time already passed today, schedule for tomorrow
     if ($target <= $now) {
         $target->modify('+1 day');
     }
-    
+
     $target_utc = $target->getTimestamp();
-    
+
     // Check if already scheduled
     $existing = wp_next_scheduled('avoska_pos_auto_report_event');
     if ($existing) {
@@ -150,29 +161,47 @@ function avoska_pos_schedule_next_auto_report() {
     wp_schedule_single_event($candidate->getTimestamp(), 'avoska_pos_auto_report_event');
 }
 function avoska_pos_change_cashier() {
+    // FIX #5: CSRF-защита — проверяем nonce перед разлогином
+    $nonce = isset($_REQUEST['_wpnonce']) ? sanitize_text_field($_REQUEST['_wpnonce']) : '';
+    if (!wp_verify_nonce($nonce, 'avoska_pos_change_cashier_nonce')) {
+        wp_die('Security check failed. Please reload the page.', 'Error', ['response' => 403]);
+    }
     wp_logout();
     wp_redirect(home_url('/apos/'));
     exit;
 }
 
 function avoska_pos_logout() {
+    // FIX #5: CSRF-защита — проверяем nonce перед разлогином
+    $nonce = isset($_REQUEST['_wpnonce']) ? sanitize_text_field($_REQUEST['_wpnonce']) : '';
+    if (!wp_verify_nonce($nonce, 'avoska_pos_logout_nonce')) {
+        wp_die('Security check failed. Please reload the page.', 'Error', ['response' => 403]);
+    }
     wp_logout();
     wp_redirect(home_url('/'));
     exit;
 }
 
 function avoska_pos_print_receipt() {
+    // FIX #5: Требуем авторизацию и права
+    if (!is_user_logged_in()) {
+        wp_die('Access denied. Please log in.', 'Access Denied', ['response' => 403]);
+    }
+    if (!current_user_can('manage_woocommerce') && !current_user_can('staff') && !current_user_can('administrator')) {
+        wp_die('You do not have permission to view receipts.', 'Access Denied', ['response' => 403]);
+    }
+
     if (!isset($_GET['order_id'])) {
         wp_die('No Order ID');
     }
-    
+
     $order_id = intval($_GET['order_id']);
     $order = wc_get_order($order_id);
-    
+
     if (!$order) {
         wp_die('Invalid Order');
     }
-    
+
     // Load the template
     include plugin_dir_path(__FILE__) . 'receipt.php';
     exit;
@@ -201,7 +230,7 @@ function avoska_render_pos()
                     <h2>Avoska POS</h2>
                     <?php
                     wp_login_form(array(
-                        'redirect' => (is_ssl() ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'],
+                        'redirect' => esc_url((is_ssl() ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']),
                         'label_username' => 'Логин или E-mail',
                         'label_password' => 'Пароль',
                         'label_remember' => 'Запомнить меня',
@@ -220,7 +249,8 @@ function avoska_render_pos()
 
     // Подключаем файлы (inlining for portability in shortcode)
     $path = plugin_dir_path(__FILE__);
-    $html = file_get_contents($path . 'index.html');
+    // FIX: проверка file_exists — аналогично css/js, чтобы не было false при отсутствии файла
+    $html = file_exists($path . 'index.html') ? file_get_contents($path . 'index.html') : '';
 
     // Inject CSS/JS paths if needed, but since we will likely inline or use absolute paths, 
     // let's just make sure resources are loaded.
@@ -245,6 +275,9 @@ function avoska_render_pos()
     <script>
         const POS_API_URL = '<?php echo admin_url('admin-ajax.php'); ?>';
         const POS_NONCE = '<?php echo wp_create_nonce("avoska_pos_api_nonce"); ?>';
+        // FIX #5: Отдельные nonce для logout и смены кассира (CSRF-защита)
+        const POS_LOGOUT_NONCE = '<?php echo wp_create_nonce("avoska_pos_logout_nonce"); ?>';
+        const POS_CHANGE_CASHIER_NONCE = '<?php echo wp_create_nonce("avoska_pos_change_cashier_nonce"); ?>';
         const POS_PLUGIN_URL = '<?php echo plugin_dir_url(__FILE__); ?>';
         const POS_VERSION = '<?php
             $plugin_data = get_file_data(__FILE__, ["Version" => "Version"]);
@@ -255,6 +288,7 @@ function avoska_render_pos()
             end: '<?= esc_js(get_option('avoska_pos_schedule_end', '21:00')) ?>'
         };
         const POS_HIDE_F1 = <?= get_option('avoska_pos_hide_f1', 'no') === 'yes' ? 'true' : 'false' ?>;
+        const POS_HIDE_SHIFT = <?= get_option('avoska_pos_hide_shift', 'no') === 'yes' ? 'true' : 'false' ?>;
         <?php
             $current_user = wp_get_current_user();
             $avatar_url = get_avatar_url($current_user->ID, ['size' => 64]);
@@ -343,6 +377,20 @@ function avoska_pos_get_products()
     elseif (taxonomy_exists('product_brand')) $brand_tax = 'product_brand';
     elseif (taxonomy_exists('yith_product_brand')) $brand_tax = 'yith_product_brand';
 
+    // FIX N+1: Загружаем все названия категорий и тегов за ОДН запрос ДО цикла
+    // вместо get_term() в цикле (N запросов = N товаров)
+    $_cats_map = [];
+    $_cat_terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false, 'fields' => 'id=>name']);
+    if (!is_wp_error($_cat_terms)) {
+        $_cats_map = (array) $_cat_terms;
+    }
+
+    $_tags_map = [];
+    $_tag_terms = get_terms(['taxonomy' => 'product_tag', 'hide_empty' => false, 'fields' => 'id=>name']);
+    if (!is_wp_error($_tag_terms)) {
+        $_tags_map = (array) $_tag_terms;
+    }
+
     foreach ($products as $p) {
         $img_id = $p->get_image_id();
         $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'thumbnail') : '';
@@ -375,14 +423,12 @@ function avoska_pos_get_products()
             }
         }
 
-        // Populate global filters
+        // FIX N+1: используем предзагруженный мап вместо get_term() в цикле
         foreach ($cat_ids as $cid) {
-            $term = get_term($cid, 'product_cat');
-            if ($term && !is_wp_error($term)) $all_cats[$cid] = $term->name;
+            if (isset($_cats_map[$cid])) $all_cats[$cid] = $_cats_map[$cid];
         }
         foreach ($tag_ids as $tid) {
-            $term = get_term($tid, 'product_tag');
-            if ($term && !is_wp_error($term)) $all_tags[$tid] = $term->name;
+            if (isset($_tags_map[$tid])) $all_tags[$tid] = $_tags_map[$tid];
         }
 
         $data[] = [
@@ -496,12 +542,28 @@ function avoska_pos_get_staff()
 
 function avoska_pos_create_order()
 {
+    // FIX критическое: проверка nonce — защита от CSRF и несанкционированных запросов
+    // nonce передаётся через заголовок X-WP-Nonce
+    $nonce = isset($_SERVER['HTTP_X_WP_NONCE'])
+        ? sanitize_text_field($_SERVER['HTTP_X_WP_NONCE'])
+        : (isset($_REQUEST['_wpnonce']) ? sanitize_text_field($_REQUEST['_wpnonce']) : '');
+
+    if (!wp_verify_nonce($nonce, 'avoska_pos_api_nonce')) {
+        wp_send_json_error(['message' => 'Security check failed. Please reload the POS.'], 403);
+        return;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
+
+    // FIX критич.: проверка $input и items перед foreach — PHP 8 бросает TypeError на null
+    if (empty($input) || empty($input['items']) || !is_array($input['items'])) {
+        wp_send_json_error(['message' => 'Invalid or empty request body'], 400);
+        return;
+    }
 
     try {
         $order = wc_create_order();
 
-        // Customer
         // Customer
         if (!empty($input['customer_id'])) {
             $order->set_customer_id((int) $input['customer_id']);
@@ -561,9 +623,9 @@ function avoska_pos_create_order()
         
         $payment_titles = [
             'pos_cash' => 'Наличные',
-            'pos_card' => 'Карта/перевод',
+            'pos_card' => 'Карта',
             'alias_transfer' => 'Перевод на алиас',
-            'usdt' => 'USDT'
+            'usdt_transfer' => 'Оплата USDT'
         ];
 
         $payment_title = $payment_titles[$payment_method] ?? ('POS - ' . ucfirst($payment_method));
@@ -599,17 +661,26 @@ function avoska_pos_create_order()
         // Save the order FIRST so all billing data is in DB
         $order->save();
 
-        // Disable ALL automatic emails during status change
-        add_filter('woocommerce_email_enabled_new_order', '__return_false');
-        add_filter('woocommerce_email_enabled_cancelled_order', '__return_false');
-        add_filter('woocommerce_email_enabled_failed_order', '__return_false');
-        add_filter('woocommerce_email_enabled_customer_completed_order', '__return_false');
-        add_filter('woocommerce_email_enabled_customer_processing_order', '__return_false');
-        add_filter('woocommerce_email_enabled_customer_invoice', '__return_false');
+        // FIX #6: Disable ALL automatic emails during status change
+        add_filter('woocommerce_email_enabled_new_order', '__return_false', 999);
+        add_filter('woocommerce_email_enabled_cancelled_order', '__return_false', 999);
+        add_filter('woocommerce_email_enabled_failed_order', '__return_false', 999);
+        add_filter('woocommerce_email_enabled_customer_completed_order', '__return_false', 999);
+        add_filter('woocommerce_email_enabled_customer_processing_order', '__return_false', 999);
+        add_filter('woocommerce_email_enabled_customer_invoice', '__return_false', 999);
         add_filter('woocommerce_email_attachments', '__return_empty_array', 999);
 
         // Status — no emails will fire here (all disabled above)
         $order->update_status('completed', 'Order created via Avoska POS');
+
+        // FIX #6: Remove email suppression filters so they don't affect other orders
+        remove_filter('woocommerce_email_enabled_new_order', '__return_false', 999);
+        remove_filter('woocommerce_email_enabled_cancelled_order', '__return_false', 999);
+        remove_filter('woocommerce_email_enabled_failed_order', '__return_false', 999);
+        remove_filter('woocommerce_email_enabled_customer_completed_order', '__return_false', 999);
+        remove_filter('woocommerce_email_enabled_customer_processing_order', '__return_false', 999);
+        remove_filter('woocommerce_email_enabled_customer_invoice', '__return_false', 999);
+        remove_filter('woocommerce_email_attachments', '__return_empty_array', 999);
 
         // Списать товары со склада (только для товаров с включённым управлением запасами)
         wc_reduce_stock_levels($order->get_id());
@@ -672,17 +743,24 @@ function avoska_pos_get_orders()
         $shipping = (float) $o->get_shipping_total();
         $total = (float) $o->get_total() - $shipping;
         
+        // FIX критич.: get_date_completed() может вернуть null даже у wc-completed
+        $dc = $o->get_date_completed();
+        $dc_tz = $dc ? (clone $dc)->setTimezone(new DateTimeZone(wp_timezone_string())) : null;
+
         $data[] = [
             'id' => $o->get_id(),
             'number' => $o->get_order_number(),
-            'date' => $o->get_date_completed()->setTimezone(new DateTimeZone(wp_timezone_string()))->format('H:i'),
-            'full_date' => $o->get_date_completed()->setTimezone(new DateTimeZone(wp_timezone_string()))->format('Y-m-d H:i:s'),
+            'date' => $dc_tz ? $dc_tz->format('H:i') : '',
+            'full_date' => $dc_tz ? $dc_tz->format('Y-m-d H:i:s') : '',
             'status' => $o->get_status(),
             'total' => $total,
             'shipping' => $shipping,
             'customer' => $o->get_billing_first_name() . ' ' . $o->get_billing_last_name(),
             'address' => $o->get_billing_address_1(),
-            'cashier' => ($author_id = get_post_field('post_author', $o->get_id())) ? (get_userdata($author_id) ? get_userdata($author_id)->display_name : '-') : '-',
+            // FIX: get_userdata вызывался дважды — сохраняем в переменную
+            'cashier' => ($author_id = get_post_field('post_author', $o->get_id()))
+                ? (($ud = get_userdata($author_id)) ? $ud->display_name : '-')
+                : '-',
             'payment_method' => $o->get_payment_method_title(),
             'items' => array_values(array_map(function ($item) {
                 return [
@@ -753,7 +831,8 @@ function avoska_pos_get_weekly_orders()
         }
     }
 
-    // Free MySQL result set before sending response to prevent 'Commands out of sync'
+    // FIX #3: добавлен global $wpdb для предотвращения 'Commands out of sync'
+    global $wpdb;
     if ( ! empty( $wpdb->last_result ) ) {
         $wpdb->flush();
     }
@@ -938,6 +1017,7 @@ function avoska_pos_render_settings_page() {
         update_option('avoska_pos_schedule_end', sanitize_text_field($_POST['schedule_end']));
         update_option('avoska_pos_report_email_2', sanitize_email($_POST['report_email_2'] ?? ''));
         update_option('avoska_pos_hide_f1', isset($_POST['hide_f1']) ? 'yes' : 'no');
+        update_option('avoska_pos_hide_shift', isset($_POST['hide_shift']) ? 'yes' : 'no');
         
         // Auto Report settings
         update_option('avoska_pos_auto_report_enabled', isset($_POST['auto_report_enabled']) ? 'yes' : 'no');
@@ -952,6 +1032,8 @@ function avoska_pos_render_settings_page() {
         // Force reschedule after settings change
         $ts = wp_next_scheduled('avoska_pos_auto_report_event');
         if ($ts) wp_unschedule_event($ts, 'avoska_pos_auto_report_event');
+        // FIX: Сбрасываем transient-защиту, иначе schedule_auto_report() сделает return до wp_schedule_single_event
+        delete_transient('avoska_pos_cron_checked');
         avoska_pos_schedule_auto_report();
         
         // Receipt fields
@@ -971,6 +1053,7 @@ function avoska_pos_render_settings_page() {
     $start = get_option('avoska_pos_schedule_start', '09:00');
     $end = get_option('avoska_pos_schedule_end', '21:00');
     $hide_f1 = get_option('avoska_pos_hide_f1', 'no');
+    $hide_shift = get_option('avoska_pos_hide_shift', 'no');
     
     // Receipt defaults
     $r_store  = get_option('avoska_pos_receipt_store_name', 'AVOSKA');
@@ -1043,6 +1126,13 @@ function avoska_pos_render_settings_page() {
                     <td>
                         <input type="checkbox" name="hide_f1" value="yes" <?php checked($hide_f1, 'yes'); ?> />
                         <label>Скрывает текст в статус-баре. Останутся только кнопки "F..." с подсказками.</label>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Скрыть строку смены</th>
+                    <td>
+                        <input type="checkbox" name="hide_shift" value="yes" <?php checked($hide_shift, 'yes'); ?> />
+                        <label>Скрывает строку с названием дня/часом/графиком в статус-баре.</label>
                     </td>
                 </tr>
             </table>
@@ -1153,12 +1243,17 @@ function avoska_pos_render_settings_page() {
 // --- SEND REPORT AJAX ---
 add_action('wp_ajax_avoska_pos_send_report', 'avoska_pos_send_report');
 function avoska_pos_send_report() {
+    // FIX: CSRF-защита — функция отправляет email, nonce обязателен
+    check_ajax_referer('avoska_pos_api_nonce', '_wpnonce');
+
     if (!current_user_can('manage_woocommerce') && !current_user_can('staff')) {
         wp_send_json_error(['message' => 'No permission']);
     }
 
     $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : 'daily';
-    $result = avoska_pos_generate_and_send_report($type);
+    $month = isset($_POST['month']) ? intval($_POST['month']) : null;
+    $year  = isset($_POST['year'])  ? intval($_POST['year'])  : null;
+    $result = avoska_pos_generate_and_send_report($type, $month, $year);
     
     if ($result['success']) {
         wp_send_json_success(['message' => $result['message']]);
@@ -1171,7 +1266,7 @@ function avoska_pos_send_report() {
  * Core report generation and sending logic.
  * Used by both AJAX handler and WP Cron.
  */
-function avoska_pos_generate_and_send_report($type = 'daily') {
+function avoska_pos_generate_and_send_report($type = 'daily', $month = null, $year = null) {
     $tz = new DateTimeZone('America/Argentina/Buenos_Aires');
     $now = new DateTime('now', $tz);
     
@@ -1180,16 +1275,26 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
         $start_date = clone $now;
         $start_date->modify('-6 days')->setTime(0,0,0);
         $title = "Отчет за неделю (" . $start_date->format('d.m') . " - " . $now->format('d.m') . ")";
+    } elseif ($type === 'monthly') {
+        $m = $month ? intval($month) : intval($now->format('m'));
+        $y = $year ? intval($year) : intval($now->format('Y'));
+        $start_date = new DateTime("{$y}-{$m}-01 00:00:00", $tz);
+        $end_date   = clone $start_date;
+        $end_date->modify('last day of this month')->setTime(23,59,59);
+        $month_names = ['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        $title = "Отчет за месяц: {$month_names[$m]} {$y}";
     } else {
         $start_date = clone $now;
         $start_date->setTime(0,0,0);
         $title = "Отчет за день (" . $now->format('d.m.Y') . ")";
     }
     
-    $end_date = clone $now;
-    $end_date->setTime(23,59,59);
+    if ($type !== 'monthly') {
+        $end_date = clone $now;
+        $end_date->setTime(23,59,59);
+    }
 
-    // Get Orders (Query optimized to fetch all at once, then filter in PHP)
+    // Get Orders
     $args = [
         'limit' => -1,
         'status' => ['wc-completed'],
@@ -1206,10 +1311,24 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
     
     $map_methods = [
         'pos_cash' => 'Наличные',
-        'pos_card' => 'Карта/перевод', 
+        'pos_card' => 'Карта',
         'alias_transfer' => 'Перевод на алиас',
-        'usdt' => 'USDT'
+        'usdt_transfer' => 'Оплата USDT'
     ];
+
+    // For hourly chart: array[0..23] => total sales
+    $hourly_totals = array_fill(0, 24, 0);
+
+    // For weekly chart: array[0..6] => total (0=Sun,1=Mon...6=Sat)
+    $weekly_totals = array_fill(0, 7, 0);
+    // Week day labels (Mon-first order for display)
+    $week_day_labels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+    // For monthly: weekly totals [week_num => total] (1-based, max 5 weeks)
+    $weekly_totals_monthly = array_fill(1, 5, 0);
+
+    // For monthly: daily totals [day_number => total]
+    $daily_totals_monthly = [];
 
     foreach ($orders as $order) {
         $shipping = (float) $order->get_shipping_total();
@@ -1218,9 +1337,9 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
         $method_slug = $order->get_payment_method();
         $method_title = isset($map_methods[$method_slug]) ? $map_methods[$method_slug] : ($order->get_payment_method_title() ?: 'Другое/Онлайн');
         
-        // Merge USDT
+        // Merge USDT variants
         if (strpos(strtolower($method_title), 'usdt') !== false) {
-            $method_title = 'Оплата USDT:';
+            $method_title = 'Оплата USDT';
         }
 
         // Determine type: POS (has cashier meta) vs Delivery
@@ -1235,14 +1354,187 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
             $stats[$group]['methods'][$method_title] = 0;
         }
         $stats[$group]['methods'][$method_title] += $total;
+
+        $date_completed = $order->get_date_completed();
+
+        // Build hourly data (for daily report)
+        if ($date_completed && $type === 'daily') {
+            $date_completed->setTimezone($tz);
+            $h = (int) $date_completed->format('G');
+            if ($h >= 0 && $h <= 23) {
+                $hourly_totals[$h] += $total;
+            }
+        }
+
+        // Build weekly data (for weekly report - by day of week)
+        if ($date_completed && $type === 'weekly') {
+            $date_completed->setTimezone($tz);
+            $dow = (int) $date_completed->format('w'); // 0=Sun...6=Sat
+            $weekly_totals[$dow] += $total;
+        }
+
+        // Monthly: group by week number within month
+        if ($date_completed && $type === 'monthly') {
+            $date_completed->setTimezone($tz);
+            $day_num = (int) $date_completed->format('j');
+            $week_num = (int) ceil($day_num / 7);
+            if ($week_num < 1) $week_num = 1;
+            if ($week_num > 5) $week_num = 5;
+            $weekly_totals_monthly[$week_num] += $total;
+
+            // Also keep daily for potential future use
+            if (!isset($daily_totals_monthly[$day_num])) {
+                $daily_totals_monthly[$day_num] = 0;
+            }
+            $daily_totals_monthly[$day_num] += $total;
+        }
+    }
+
+    // Comparison with previous month (for monthly report)
+    $prev_month_total = 0;
+    if ($type === 'monthly') {
+        $prev_start = clone $start_date;
+        $prev_start->modify('-1 month');
+        $prev_end = clone $prev_start;
+        $prev_end->modify('last day of this month')->setTime(23,59,59);
+        $prev_orders = wc_get_orders([
+            'limit' => -1,
+            'status' => ['wc-completed'],
+            'date_completed' => $prev_start->getTimestamp() . '...' . $prev_end->getTimestamp(),
+            'type' => 'shop_order'
+        ]);
+        foreach ($prev_orders as $po) {
+            $prev_month_total += (float)$po->get_total() - (float)$po->get_shipping_total();
+        }
+    }
+
+    // Build USDT USD conversion note
+    $usdt_rate = get_transient('avoska_usdt_ars_rate');
+    if (!$usdt_rate) {
+        $resp = wp_remote_get('https://criptoya.com/api/usdt/ars', ['timeout' => 6]);
+        if (!is_wp_error($resp)) {
+            $body = json_decode(wp_remote_retrieve_body($resp), true);
+            if (!empty($body['letsbit']['totalAsk'])) {
+                $usdt_rate = (float) $body['letsbit']['totalAsk'];
+                set_transient('avoska_usdt_ars_rate', $usdt_rate, HOUR_IN_SECONDS);
+            }
+        }
     }
 
     // Helper for formatting
     $format_val = function($val) {
-        // Return "$ 5 000" style
         return '$ ' . number_format($val, 0, '.', ' ');
     };
-    
+
+    // --- HTML TABLE BAR CHART BUILDER (email-safe, no SVG) ---
+    $schedule_start_h = (int) explode(':', get_option('avoska_pos_schedule_start', '09:00'))[0];
+    $schedule_end_h   = (int) explode(':', get_option('avoska_pos_schedule_end', '21:00'))[0];
+
+    /**
+     * Builds a pure HTML table-based bar chart for email clients.
+     * Uses only <table>, <td>, inline styles — works in Gmail, Outlook, Apple Mail.
+     */
+    $build_html_chart = function(array $data, string $title, string $color_bar = '#3498db', string $color_bar_light = '#ebf5fb') use ($format_val) {
+        $labels = array_keys($data);
+        $values = array_values($data);
+        $n = count($values);
+        if ($n === 0) return '';
+
+        $max_v = max($values);
+        if ($max_v <= 0) $max_v = 1;
+
+        $bar_height = 100; // max bar height in px
+        $format_short = function($v) {
+            if ($v >= 1000000) return round($v/1000000, 1) . 'M';
+            if ($v >= 1000) return round($v/1000) . 'k';
+            return round($v);
+        };
+
+        $html = '<div style="margin:16px 0; padding:12px 10px 8px; background:#f8f9fa; border-radius:8px; border:1px solid #eee;">';
+        $html .= '<div style="font-size:12px; font-weight:bold; color:#7f8c8d; margin-bottom:10px;">' . htmlspecialchars($title) . '</div>';
+
+        // Bar chart as table
+        $html .= '<table cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">';
+
+        // Row 1: value labels on top of bars
+        $html .= '<tr>';
+        foreach ($values as $v) {
+            $label = $v > 0 ? $format_short($v) : '';
+            $html .= '<td style="text-align:center; font-size:9px; color:' . $color_bar . '; font-weight:bold; padding:0 1px 2px;">' . $label . '</td>';
+        }
+        $html .= '</tr>';
+
+        // Row 2: bars (using vertical-align:bottom trick)
+        $html .= '<tr>';
+        foreach ($values as $v) {
+            $pct = ($v / $max_v);
+            $h = max(2, round($pct * $bar_height));
+            $bg = $v > 0 ? $color_bar : '#e8e8e8';
+            $html .= '<td style="vertical-align:bottom; text-align:center; padding:0 1px; height:' . $bar_height . 'px;">';
+            $html .= '<div style="width:100%; max-width:40px; height:' . $h . 'px; background:' . $bg . '; border-radius:3px 3px 0 0; margin:0 auto;"></div>';
+            $html .= '</td>';
+        }
+        $html .= '</tr>';
+
+        // Row 3: x-axis labels
+        $html .= '<tr>';
+        foreach ($labels as $label) {
+            $html .= '<td style="text-align:center; font-size:9px; color:#999; padding:3px 1px 0; border-top:1px solid #e0e0e0;">' . htmlspecialchars((string)$label) . '</td>';
+        }
+        $html .= '</tr>';
+
+        $html .= '</table>';
+        $html .= '</div>';
+
+        return $html;
+    };
+
+    // --- BUILD CHART FOR EACH REPORT TYPE ---
+    $chart_html = '';
+
+    if ($type === 'daily') {
+        // Hourly chart: 9:00 – 21:00
+        $hourly_data = [];
+        for ($h = $schedule_start_h; $h <= $schedule_end_h; $h++) {
+            $hourly_data[$h . ':00'] = $hourly_totals[$h] ?? 0;
+        }
+        $chart_html = $build_html_chart($hourly_data, '📊 Продажи по часам', '#3498db', '#ebf5fb');
+
+    } elseif ($type === 'weekly') {
+        // Reorder Mon(1)...Sun(0) for display
+        $order_dow = [1, 2, 3, 4, 5, 6, 0];
+        $week_data = [];
+        foreach ($order_dow as $dow) {
+            $week_data[$week_day_labels[$dow]] = $weekly_totals[$dow];
+        }
+        $chart_html = $build_html_chart($week_data, '📊 Продажи за неделю (по дням)', '#27ae60', '#eafaf1');
+
+    } elseif ($type === 'monthly') {
+        // Weekly chart: Week 1–4 (and week 5 if exists)
+        $monthly_data = [];
+        for ($w = 1; $w <= 5; $w++) {
+            $v = $weekly_totals_monthly[$w] ?? 0;
+            if ($w === 5 && $v == 0) continue;
+            $monthly_data['Нед ' . $w] = $v;
+        }
+        $chart_html = $build_html_chart($monthly_data, '📊 Продажи за месяц (по неделям)', '#8e44ad', '#f4ecf7');
+    }
+
+    // Monthly progress bar
+    $monthly_progress_html = '';
+    if ($type === 'monthly' && $prev_month_total > 0) {
+        $current_total = $stats['pos']['total'] + $stats['delivery']['total'];
+        $pct = round(($current_total / $prev_month_total) * 100);
+        $color = $pct >= 100 ? '#27ae60' : ($pct >= 75 ? '#f39c12' : '#e74c3c');
+        $monthly_progress_html  = '<div style="margin:15px 0; padding:12px; background:#f0f3f6; border-radius:6px;">';
+        $monthly_progress_html .= '<div style="font-size:12px; color:#7f8c8d; margin-bottom:6px;">📈 Прогресс vs прошлый месяц: <b style="color:' . $color . '">' . $pct . '%</b></div>';
+        $monthly_progress_html .= '<div style="background:#ddd; border-radius:4px; overflow:hidden; height:10px;">';
+        $monthly_progress_html .= '<div style="background:' . $color . '; width:' . min($pct, 100) . '%; height:100%; border-radius:4px;"></div>';
+        $monthly_progress_html .= '</div>';
+        $monthly_progress_html .= '<div style="font-size:11px; color:#7f8c8d; margin-top:4px;">Прошлый месяц: ' . $format_val($prev_month_total) . ' → Текущий: ' . $format_val($current_total) . '</div>';
+        $monthly_progress_html .= '</div>';
+    }
+
     // Build Email
     ob_start();
     ?>
@@ -1250,14 +1542,23 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
         <h2 style="border-bottom: 2px solid #3498db; padding-bottom: 10px;"><?= $title ?></h2>
         <p style="color: #7f8c8d; font-size: 12px;">Дата формирования: <?= $now->format('d.m.Y H:i') ?></p>
         
+        <?= $monthly_progress_html ?>
+        <?= $chart_html ?>
+        
         <!-- POS SECTION -->
         <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #eee;">
             <h3 style="margin-top: 0; color: #2c3e50; border-bottom: 1px dashed #ccc; padding-bottom: 5px;">🏪 Касса (POS)</h3>
             <p><strong>Заказов:</strong> <?= $stats['pos']['count'] ?></p>
             <table style="width: 100%; border-collapse: collapse;">
-                <?php foreach ($stats['pos']['methods'] as $name => $amount): ?>
+                <?php foreach ($stats['pos']['methods'] as $name => $amount):
+                    $usdt_note = '';
+                    if (strpos(strtolower($name), 'usdt') !== false && $usdt_rate > 0) {
+                        $usdt_amount = round($amount / $usdt_rate, 1);
+                        $usdt_note = ' <span style="color:#8e44ad; font-size:11px;">(≈ ' . $usdt_amount . ' USDT)</span>';
+                    }
+                ?>
                 <tr>
-                    <td style="padding: 5px 0; border-bottom: 1px solid #eee;"><?= esc_html($name) ?></td>
+                    <td style="padding: 5px 0; border-bottom: 1px solid #eee;"><?= esc_html($name) . $usdt_note ?></td>
                     <td style="padding: 5px 0; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;"><?= $format_val($amount) ?></td>
                 </tr>
                 <?php endforeach; ?>
@@ -1279,9 +1580,15 @@ function avoska_pos_generate_and_send_report($type = 'daily') {
             <h3 style="margin-top: 0; color: #2980b9; border-bottom: 1px dashed #bdc3c7; padding-bottom: 5px;">🚚 Доставка / Онлайн</h3>
             <p><strong>Заказов:</strong> <?= $stats['delivery']['count'] ?></p>
             <table style="width: 100%; border-collapse: collapse;">
-                <?php foreach ($stats['delivery']['methods'] as $name => $amount): ?>
+                <?php foreach ($stats['delivery']['methods'] as $name => $amount):
+                    $usdt_note = '';
+                    if (strpos(strtolower($name), 'usdt') !== false && $usdt_rate > 0) {
+                        $usdt_amount = round($amount / $usdt_rate, 1);
+                        $usdt_note = ' <span style="color:#8e44ad; font-size:11px;">(≈ ' . $usdt_amount . ' USDT)</span>';
+                    }
+                ?>
                 <tr>
-                    <td style="padding: 5px 0; border-bottom: 1px solid #dce4ec;"><?= esc_html($name) ?></td>
+                    <td style="padding: 5px 0; border-bottom: 1px solid #dce4ec;"><?= esc_html($name) . $usdt_note ?></td>
                     <td style="padding: 5px 0; border-bottom: 1px solid #dce4ec; text-align: right; font-weight: bold;"><?= $format_val($amount) ?></td>
                 </tr>
                 <?php endforeach; ?>

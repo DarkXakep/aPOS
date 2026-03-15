@@ -154,17 +154,15 @@ if (!\defined('ABSPATH')) {
 	 */
 	do_action('woocommerce_pos_receipt_head');
 	
-    // Helper function for formatting
-    function avoska_pos_fmt($amount, $decimals = 2) {
-        $formatted = number_format((float) $amount, $decimals, '.', '');
-        // Remove trailing zeros and decimal point if integer
-        // echo $formatted . " -> " . (float)$formatted; 
-        // But casting to float might lose precision for crypto? No, receipt is currency.
-        // Better string manipulation:
-        if (strpos($formatted, '.') !== false) {
-            $formatted = rtrim(rtrim($formatted, '0'), '.');
+    // FIX #4: Обёртка if (!function_exists) предотвращает Fatal error при повторном include
+    if (!function_exists('avoska_pos_fmt')) {
+        function avoska_pos_fmt($amount, $decimals = 2) {
+            $formatted = number_format((float) $amount, $decimals, '.', '');
+            if (strpos($formatted, '.') !== false) {
+                $formatted = rtrim(rtrim($formatted, '0'), '.');
+            }
+            return $formatted;
         }
-        return $formatted;
     }
 	?>
     <script>
@@ -341,7 +339,6 @@ if (!\defined('ABSPATH')) {
 			$amount_tendered = $order->get_meta('_pos_tendered'); // Fixed Key: _pos_tendered
 			$change_given = $order->get_meta('_pos_change'); // Fixed Key: _pos_change
 			$payment_title = $order->get_payment_method_title();
-			// Force Spanish Payment Titles
 			// Force Spanish Payment Titles
 			if (empty($payment_title) || stripos($payment_title, 'наличные') !== false || stripos($payment_title, 'cash') !== false) {
 				$payment_title = 'EFECTIVO';

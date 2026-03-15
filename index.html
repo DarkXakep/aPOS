@@ -181,7 +181,7 @@
                             <line x1="16" x2="8" y1="17" y2="17" />
                         </svg></button>
                     <button type="button" id="btn-payment" class="btn-big-pay" title="F10">
-                        <span data-i18n="btn_pay">PAYMENT</span>
+                        <span data-i18n="btn_pay">ОПЛАТА</span>
                     </button>
                 </div>
             </div>
@@ -202,11 +202,11 @@
                 <h2 data-i18n="nav_history">История заказов</h2>
                 <div class="history-stats-top" style="display: flex; gap: 20px;">
                     <div style="background: #f0f3f6; padding: 10px 20px; border-radius: 8px;">
-                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_today">TODAY</small>
+                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_today">СЕГОДНЯ</small>
                         <b id="sb-today-total" style="font-size: 20px; color: #2ecc71;">$0</b>
                     </div>
                     <div style="background: #f0f3f6; padding: 10px 20px; border-radius: 8px;">
-                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_orders">ORDERS</small>
+                        <small style="color: #7f8c8d; display: block;" data-i18n="stat_orders">ЗАКАЗЫ</small>
                         <b id="sb-today-count" style="font-size: 20px; color: #3498db;">0</b>
                     </div>
                 </div>
@@ -254,9 +254,9 @@
                         style="background:#2980b9; color:#fff; font-size:12px; padding:5px 10px;">
                         <span data-i18n="report_send_weekly">📅 За неделю</span>
                     </button>
-                    <button onclick="POS.sendReport('hourly')" class="pos-btn"
+                    <button onclick="POS.openMonthlyReportModal()" class="pos-btn"
                         style="background:#8e44ad; color:#fff; font-size:12px; padding:5px 10px;">
-                        <span data-i18n="report_send_hourly">🕒 По часам</span>
+                        <span data-i18n="report_send_monthly">📊 За месяц</span>
                     </button>
                 </div>
             </div>
@@ -446,7 +446,8 @@
                         <!-- Regular Price -->
                         <div>
                             <label class="pe-label" data-i18n="edit_regular_price">Базовая цена</label>
-                            <input type="number" id="pe-regular-price" class="pe-input" step="0.01">
+                            <input type="number" id="pe-regular-price" class="pe-input" step="0.01"
+                                oninput="POS.updateMarginDisplay()">
                         </div>
 
                         <!-- Sale Price -->
@@ -458,7 +459,16 @@
                         <!-- Cost -->
                         <div>
                             <label class="pe-label" data-i18n="edit_cost">Себестоимость</label>
-                            <input type="number" id="pe-cost" class="pe-input" step="0.01">
+                            <input type="number" id="pe-cost" class="pe-input" step="0.01"
+                                oninput="POS.updateMarginDisplay()">
+                        </div>
+
+                        <!-- Margin % (auto-calculated, read-only) -->
+                        <div>
+                            <label class="pe-label">Маржа %</label>
+                            <div id="pe-margin-display"
+                                style="padding:9px 12px; border:2px solid #eee; border-radius:8px; font-size:15px; font-weight:700; background:#f8f9fa; min-height:38px; display:flex; align-items:center;">
+                                —</div>
                         </div>
 
                         <!-- Stock -->
@@ -471,10 +481,10 @@
                         <div>
                             <label class="pe-label" data-i18n="edit_visibility">Видимость</label>
                             <select id="pe-visibility" class="pe-input">
-                                <option value="visible">Visible</option>
-                                <option value="catalog">Catalog only</option>
-                                <option value="search">Search only</option>
-                                <option value="hidden">Hidden</option>
+                                <option value="visible">Видимо</option>
+                                <option value="catalog">Только каталог</option>
+                                <option value="search">Только поиск</option>
+                                <option value="hidden">Скрыто</option>
                             </select>
                         </div>
 
@@ -601,7 +611,8 @@
                     <div class="pm-btn" data-pm="pos_card" onclick="POS.setPaymentMethod('pos_card')"
                         data-i18n="pm_card">💳
                         КАРТА</div>
-                    <div class="pm-btn" data-pm="usdt" onclick="POS.setPaymentMethod('usdt')">💲 USDT</div>
+                    <div class="pm-btn" data-pm="usdt_transfer" onclick="POS.setPaymentMethod('usdt_transfer')">💲 USDT
+                    </div>
                     <div class="pm-btn" data-pm="alias_transfer" onclick="POS.setPaymentMethod('alias_transfer')">🏦
                         ALIAS</div>
                 </div>
@@ -793,4 +804,45 @@
 
     <!-- RECEIPT (Hidden for print layout) -->
     <div id="receipt-container" class="print-only"></div>
+
+    <!-- MONTHLY REPORT MODAL -->
+    <div id="modal-monthly-report" class="modal-overlay hidden">
+        <div style="background:#fff; padding:30px; border-radius:14px; width:360px; text-align:center; box-shadow:0 10px 40px rgba(0,0,0,0.25);">
+            <h2 style="margin:0 0 20px 0; color:#2c3e50; font-size:20px;">📊 Отчёт за месяц</h2>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px;">
+                <div>
+                    <label style="display:block; font-size:12px; color:#7f8c8d; margin-bottom:5px;">Месяц</label>
+                    <select id="monthly-report-month" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:15px; outline:none;">
+                        <option value="1">Январь</option>
+                        <option value="2">Февраль</option>
+                        <option value="3">Март</option>
+                        <option value="4">Апрель</option>
+                        <option value="5">Май</option>
+                        <option value="6">Июнь</option>
+                        <option value="7">Июль</option>
+                        <option value="8">Август</option>
+                        <option value="9">Сентябрь</option>
+                        <option value="10">Октябрь</option>
+                        <option value="11">Ноябрь</option>
+                        <option value="12">Декабрь</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; color:#7f8c8d; margin-bottom:5px;">Год</label>
+                    <input type="number" id="monthly-report-year" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:15px; outline:none; box-sizing:border-box;" min="2020" max="2099">
+                </div>
+            </div>
+            <!-- Progress indicator (hidden by default) -->
+            <div id="monthly-report-progress" style="display:none; margin-bottom:15px;">
+                <div style="background:#f0f3f6; border-radius:8px; overflow:hidden; height:8px;">
+                    <div id="monthly-report-bar" style="height:100%; background:linear-gradient(90deg,#8e44ad,#3498db); width:0%; transition:width 0.5s ease;"></div>
+                </div>
+                <div id="monthly-report-status" style="font-size:12px; color:#7f8c8d; margin-top:6px;">Формирование отчёта...</div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button onclick="POS.closeModal('modal-monthly-report')" style="flex:1; padding:12px; background:#ecf0f1; color:#7f8c8d; border:none; border-radius:8px; font-size:14px; cursor:pointer;">Отмена</button>
+                <button id="btn-send-monthly" onclick="POS.sendMonthlyReport()" style="flex:1; padding:12px; background:#8e44ad; color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">📧 Отправить</button>
+            </div>
+        </div>
+    </div>
 </div>

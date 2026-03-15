@@ -1,4 +1,4 @@
-/* POS STYLE V2.5.18 - REFRESHED DESIGN */
+/* POS STYLE V2.6.2 - REFRESHED DESIGN */
 :root {
     --bg-color: #f0f2f5;
     --sidebar-bg: #1a252f;
@@ -659,7 +659,9 @@ body.avoska-pos-active>*:not(#avoska-pos-root) {
 }
 
 
+/* FIX CSS: Объединённый блок (.status-item и .status-key были дважды) */
 .status-item {
+    opacity: 0.8;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -668,10 +670,10 @@ body.avoska-pos-active>*:not(#avoska-pos-root) {
 .status-key {
     background: #fff;
     color: #2c3e50;
-    padding: 2px 6px;
+    padding: 0 4px;
     border-radius: 3px;
     font-weight: bold;
-    font-size: 11px;
+    font-size: 10px;
 }
 
 /* Adjust columns height to make room for footer */
@@ -772,22 +774,6 @@ body.avoska-pos-active>*:not(#avoska-pos-root) {
 }
 
 
-.status-item {
-    opacity: 0.8;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.status-key {
-    background: #fff;
-    color: #2c3e50;
-    padding: 0 4px;
-    border-radius: 3px;
-    font-weight: bold;
-    font-size: 10px;
-}
-
 /* CHECKOUT MODAL */
 .modal-overlay {
     position: fixed;
@@ -835,7 +821,7 @@ body.avoska-pos-active>*:not(#avoska-pos-root) {
 }
 
 .pm-btn {
-    padding: 15px;
+    padding: 12px 5px;
     border: 2px solid #eee;
     background: #fff;
     border-radius: 8px;
@@ -843,6 +829,14 @@ body.avoska-pos-active>*:not(#avoska-pos-root) {
     cursor: pointer;
     font-weight: 600;
     color: #555;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: clamp(11px, 2.5vh, 14px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
 }
 
 .pm-btn.active {
@@ -916,6 +910,7 @@ input[type=number] {
     box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
 }
 
+/* FIX CSS: Объединённый .btn-finish-pay (был дважды) */
 .btn-finish-pay {
     margin-top: auto;
     padding: 18px;
@@ -928,17 +923,12 @@ input[type=number] {
     cursor: pointer;
     box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);
     transition: 0.2s;
+    position: relative;
+    overflow: hidden;
 }
 
 .btn-finish-pay:hover {
     transform: translateY(-2px);
-}
-
-.btn-finish-pay {
-    position: relative;
-    /* For pseudo-element */
-    overflow: hidden;
-    /* Clip progress bar */
 }
 
 .btn-finish-pay::after {
@@ -1527,9 +1517,42 @@ footer,
         display: none !important;
     }
 
-    /* Spacing for bottom tabs */
+    /* Cart tabs on mobile — fixed above mobile tabs */
+    .cart-tabs-container {
+        position: fixed !important;
+        bottom: 48px;
+        left: 0;
+        right: 0;
+        z-index: 9998;
+        background: #f8f9fa;
+        border-top: 1px solid #dfe6e9;
+        padding: 6px 10px;
+        display: flex !important;
+        gap: 6px;
+        overflow-x: auto;
+        box-shadow: 0 -1px 5px rgba(0, 0, 0, 0.05);
+    }
+
+    .cart-tabs-container .cart-tab {
+        font-size: 11px;
+        padding: 6px 10px;
+        min-width: max-content;
+    }
+
+    .cart-tabs-container .btn-new-tab {
+        width: 26px;
+        height: 26px;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+
+    /* Spacing for bottom tabs + cart tabs */
     #view-register {
         padding-bottom: 120px !important;
+    }
+
+    .col-cart {
+        padding-bottom: 100px !important;
     }
 
     /* Modal fixes */

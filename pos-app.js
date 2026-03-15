@@ -1,7 +1,7 @@
-﻿const POS = {
+const POS = {
     products: [],
     filterData: { categories: [], brands: [], tags: [] }, // New Filter Data
-    activeFilters: { category: null, brand: null, tag: null }, // Active filters
+    activeFilters: { category: null, brand: null, tag: null, stock: null }, // Active filters
     sortBy: { field: 'name', dir: 'asc' }, // Sorting state
     rates: {}, // For Currency Converter
     carts: [
@@ -82,7 +82,7 @@
             receipt_order: "Заказ #",
             receipt_method: "Метод",
             receipt_thanks: "Спасибо за покупку!",
-            receipt_date: "Дата",
+            // FIX #7: убрана дублированная строка receipt_date
             receipt_date: "Дата",
             btn_print: "🖨 Печать",
             order_created: "Заказ создан",
@@ -142,12 +142,18 @@
             // Reports
             report_send_daily: "📧 Отправить за день",
             report_send_weekly: "📅 За неделю",
-            report_send_hourly: "🕒 По часам",
+            report_send_monthly: "📊 За месяц",
             report_hourly_chart: "Продажи по часам",
             report_confirm_daily: "Отправить отчет за сегодня?",
             report_confirm_weekly: "Отправить отчет за неделю?",
             // Search placeholder
-            search_customers_placeholder: "Поиск по имени, email, телефону..."
+            search_customers_placeholder: "Поиск по имени, email, телефону...",
+            // FIX #2: Перевод английских строк
+            no_items: "Товары не найдены",
+            confirm_delete: "Удалить товар?",
+            confirm_clear: "Очистить корзину?",
+            confirm_close_last: "Нельзя закрыть последнюю корзину!",
+            enter_new_total: "Новая сумма товара:"
         },
         ARG: {
             nav_register: "Caja",
@@ -193,7 +199,7 @@
             receipt_order: "Pedido #",
             receipt_method: "Método",
             receipt_thanks: "¡Gracias por su compra!",
-            receipt_date: "Fecha",
+            // FIX #7: убрана дублированная строка receipt_date
             receipt_date: "Fecha",
             btn_print: "🖨 Imprimir",
             order_created: "Pedido Creado",
@@ -253,12 +259,18 @@
             // Reports
             report_send_daily: "📧 Enviar del día",
             report_send_weekly: "📅 De la semana",
-            report_send_hourly: "🕒 Por hora",
+            report_send_monthly: "📊 Por mes",
             report_hourly_chart: "Ventas por hora",
             report_confirm_daily: "¿Enviar informe del día?",
             report_confirm_weekly: "¿Enviar informe de la semana?",
             // Search placeholder
-            search_customers_placeholder: "Buscar por nombre, email, teléfono..."
+            search_customers_placeholder: "Buscar por nombre, email, teléfono...",
+            // FIX #2: Перевод английских строк
+            no_items: "No se encontraron productos",
+            confirm_delete: "¿Eliminar el producto?",
+            confirm_clear: "¿Limpiar el carrito?",
+            confirm_close_last: "¡No se puede cerrar el último carrito!",
+            enter_new_total: "Nuevo total del artículo:"
         }
     },
 
@@ -274,6 +286,7 @@
         }
 
         POS.initLang();
+        POS.applyLang();
         POS.initResizer();
         POS.initShortcuts();
 
@@ -382,6 +395,18 @@
         }
     },
 
+    // FIX XSS: Универсальная функция экранирования HTML
+    // Использовать везде где данные из БД вставляются в innerHTML
+    esc: (str) => {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
 
     // --- STATE HELPERS ---
     getActiveCart: () => {
@@ -410,23 +435,27 @@
     // --- PRODUCT LIST ---
     // --- PRODUCT LIST ---
     loadProducts: async (force = false) => {
+        // FIX #1: TTL 30 минут для кэша продуктов
+        const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут
+
         // Try Local Storage First
         if (!force) {
             const cached = localStorage.getItem('avoska_pos_products');
             if (cached) {
                 try {
                     const parsed = JSON.parse(cached);
-                    // Check if empty or new structure (has .products and .filters?)
-                    // Legacy check: if array, it's just products.
-                    if (parsed) {
+                    const age = Date.now() - (parsed.savedAt || 0);
+                    if (age < CACHE_TTL_MS && parsed) {
                         if (Array.isArray(parsed)) {
                             POS.products = parsed;
                         } else if (parsed.products) {
                             POS.products = parsed.products;
                             POS.filterData = parsed.filters || { categories: [], brands: [], tags: [] };
                         }
-                        console.log('[POS] Products loaded from LocalStorage:', POS.products.length);
+                        console.log('[POS] Products loaded from LocalStorage (age: ' + Math.round(age / 60000) + 'min)');
                         return; // Done
+                    } else if (age >= CACHE_TTL_MS) {
+                        console.log('[POS] Cache expired (' + Math.round(age / 60000) + 'min), fetching fresh');
                     }
                 } catch (e) {
                     console.warn('[POS] Cache parse error, fetching fresh');
@@ -441,8 +470,8 @@
                 POS.products = data.data.products;
                 POS.filterData = data.data.filters || { categories: [], brands: [], tags: [] };
 
-                // Save to Local
-                const toSave = { products: POS.products, filters: POS.filterData };
+                // FIX #1: Сохраняем с временной меткой для TTL
+                const toSave = { products: POS.products, filters: POS.filterData, savedAt: Date.now() };
                 localStorage.setItem('avoska_pos_products', JSON.stringify(toSave));
                 console.log('[POS] Products fetched and cached');
             }
@@ -461,6 +490,33 @@
             const item = list.find(i => i.id == id);
             return item ? item.name : defaultText;
         };
+
+        // STOCK FILTER (FIRST)
+        const getStockFilterName = (val) => {
+            if (val === 'in_stock') return 'В наличии';
+            if (val === 'out_of_stock') return 'Нет в наличии';
+            return '✨ Наличие'; // Default
+        };
+        const activeStockName = getStockFilterName(POS.activeFilters.stock);
+        const isStockActive = !!POS.activeFilters.stock;
+
+        html += `
+        <div class="pos-filter-dd" id="dd-stock">
+            <div class="pos-filter-btn ${isStockActive ? 'active' : ''}" 
+                 id="btn-stock"
+                 onclick="POS.toggleFilterDropdown('stock')" 
+                 title="${activeStockName}">
+                 ✨
+            </div>
+            <div class="pos-filter-menu" id="menu-stock">
+                <div class="pos-filter-list" id="list-stock">
+                    <div class="pos-filter-item ${!POS.activeFilters.stock ? 'selected' : ''}" onclick="POS.setFilter('stock', null)">Все товары</div>
+                    <div class="pos-filter-item ${POS.activeFilters.stock === 'in_stock' ? 'selected' : ''}" onclick="POS.setFilter('stock', 'in_stock')">🟢 В наличии</div>
+                    <div class="pos-filter-item ${POS.activeFilters.stock === 'out_of_stock' ? 'selected' : ''}" onclick="POS.setFilter('stock', 'out_of_stock')">🔴 Нет в наличии</div>
+                </div>
+            </div>
+        </div>
+        `;
 
         // KITCHEN (Categories)
         const activeCatName = getActiveName(POS.filterData.categories, POS.activeFilters.category, '📂 Категория'); // Category
@@ -483,8 +539,8 @@
                     <div class="pos-filter-item" onclick="POS.setFilter('category', '')">Все категории</div>
                     ${POS.filterData.categories.map(c => `
                         <div class="pos-filter-item ${POS.activeFilters.category == c.id ? 'selected' : ''}" 
-                             data-name="${c.name.toLowerCase()}" onclick="POS.setFilter('category', ${c.id})">
-                             ${c.name}
+                             data-name="${POS.esc(c.name.toLowerCase())}" onclick="POS.setFilter('category', ${c.id})">
+                             ${POS.esc(c.name)}
                         </div>
                     `).join('')}
                 </div>
@@ -513,8 +569,8 @@
                     <div class="pos-filter-item" onclick="POS.setFilter('brand', '')">Все бренды</div>
                     ${POS.filterData.brands.map(b => `
                         <div class="pos-filter-item ${POS.activeFilters.brand == b.id ? 'selected' : ''}" 
-                             data-name="${b.name.toLowerCase()}" onclick="POS.setFilter('brand', ${b.id})">
-                             ${b.name}
+                             data-name="${POS.esc(b.name.toLowerCase())}" onclick="POS.setFilter('brand', ${b.id})">
+                             ${POS.esc(b.name)}
                         </div>
                     `).join('')}
                 </div>
@@ -546,7 +602,7 @@
                     html += `
                     <div class="pos-filter-btn ${isActive ? 'active' : ''}" 
                          onclick="POS.setFilter('tag', ${isActive ? "''" : t.id})"
-                         title="${t.name}"
+                         title="${POS.esc(t.name)}"
                          style="font-size:16px; ${isActive ? 'box-shadow:0 0 0 2px var(--accent);' : ''}">
                         ${tagIcons[i] || '🔖'}
                     </div>`;
@@ -628,13 +684,17 @@
     },
 
     setFilter: (type, val) => {
-        POS.activeFilters[type] = val ? parseInt(val) : null;
+        if (type === 'stock') {
+            POS.activeFilters[type] = val;
+        } else {
+            POS.activeFilters[type] = val ? parseInt(val) : null;
+        }
         POS.renderFilters(); // Re-render to update btn text and close menu
         POS.renderGrid(document.getElementById('pos-search').value);
     },
 
     clearFilters: () => {
-        POS.activeFilters = { category: null, brand: null, tag: null };
+        POS.activeFilters = { category: null, brand: null, tag: null, stock: null };
         POS.renderFilters(); // Reset selects
         POS.renderGrid(document.getElementById('pos-search').value);
     },
@@ -667,7 +727,10 @@
             if (POS.activeFilters.category && !p.cat_ids?.includes(POS.activeFilters.category)) return false;
             if (POS.activeFilters.brand && !p.brand_ids?.includes(POS.activeFilters.brand)) return false;
             if (POS.activeFilters.tag && !p.tag_ids?.includes(POS.activeFilters.tag)) return false;
-            // Tag logic if added...
+            
+            // Stock Filter
+            if (POS.activeFilters.stock === 'in_stock' && p.stock !== null && p.stock <= 0) return false;
+            if (POS.activeFilters.stock === 'out_of_stock' && (p.stock === null || p.stock > 0)) return false;
 
             return true;
         });
@@ -693,7 +756,8 @@
 
         // 3. Render
         if (filtered.length === 0) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#bdc3c7;">No items found</div>';
+            // FIX #8: Используем i18n вместо жёстко записанной английской строки
+            container.innerHTML = `<div style="padding:20px; text-align:center; color:#bdc3c7;">${POS.t('no_items')}</div>`;
             return;
         }
 
@@ -710,10 +774,10 @@
 
             const imgSrc = p.image || 'https://via.placeholder.com/40';
             row.innerHTML = `
-                 <div class="p-img"><img src="${imgSrc}" loading="lazy" style="background:#eee"></div>
+                             <div class="p-img"><img src="${POS.esc(imgSrc)}" loading="lazy" style="background:#eee"></div>
                  <div class="row-info">
-                     <div class="p-name">${p.name}</div>
-                     <div class="p-sku">${p.sku || ''}</div>
+                     <div class="p-name">${POS.esc(p.name)}</div>
+                     <div class="p-sku">${POS.esc(p.sku || '')}</div>
                  </div>
                  <div class="p-stock ${stockClass}">${p.stock === null ? '∞' : p.stock}</div>
                  <div class="p-price">$${p.price}</div>
@@ -875,7 +939,8 @@
 
     closeCart: (e, id) => {
         if (e) e.stopPropagation();
-        if (POS.carts.length === 1) return alert('Cannot close last cart');
+        // FIX #10: Переведён alert с i18n
+        if (POS.carts.length === 1) return alert(POS.t('confirm_close_last'));
 
         const idx = POS.carts.findIndex(c => c.id === id);
         POS.carts = POS.carts.filter(c => c.id !== id);
@@ -959,7 +1024,8 @@
         const cart = POS.getActiveCart();
         const qty = parseFloat(newQty);
         if (qty <= 0) {
-            if (confirm('Delete?')) POS.removeFromCart(index);
+            // FIX #9: Переведенный confirm с i18n
+            if (confirm(POS.t('confirm_delete'))) POS.removeFromCart(index);
             else POS.updateCartUI();
         } else {
             cart.items[index].qty = qty;
@@ -982,7 +1048,8 @@
     clearCart: () => {
         const cart = POS.getActiveCart();
         if (cart.items.length === 0) return;
-        if (confirm('Clear current cart?')) {
+        // FIX #9: Переведенный confirm с i18n
+        if (confirm(POS.t('confirm_clear'))) {
             cart.items = [];
             POS.saveState();
             POS.updateCartUI();
@@ -1023,11 +1090,11 @@
 
                         <div class="ci-info" style="display:flex; flex-direction:column; justify-content:center; padding-left:5px;">
                              <div class="ci-name" style="font-size:13px; font-weight:600; line-height:1.2;">
-                                 ${item.name}
+                                 ${POS.esc(item.name)}
                                  ${item.original_price && item.price !== item.original_price ? `<span style="font-size:11px; color:orange; margin-left:4px;">(Mod)</span>` : ''}
                              </div>
                              <div style="font-size:11px; color:#95a5a6; margin-top:2px;">
-                            ${item.sku ? 'SKU:' + item.sku : ''} ${item.ean ? 'EAN:' + item.ean : ''}
+                            ${item.sku ? 'SKU:' + POS.esc(item.sku) : ''} ${item.ean ? 'EAN:' + POS.esc(item.ean) : ''}
                          </div>
                         </div>
 
@@ -1101,7 +1168,8 @@
         if (!item) return;
 
         const currentTotal = (item.price * item.qty).toFixed(2);
-        const newTotalStr = prompt(POS.t('enter_new_total') || 'Total Item Price:', currentTotal); // Simple prompt as requested for speed
+        // FIX #14: используем enter_new_total из i18n вместо английского fallback
+        const newTotalStr = prompt(POS.t('enter_new_total'), currentTotal);
         if (newTotalStr === null) return;
 
         const newTotal = parseFloat(newTotalStr);
@@ -1154,7 +1222,8 @@
         document.addEventListener('click', (e) => {
             const menu = document.getElementById('pos-user-menu');
             const logo = document.querySelector('.pos-logo');
-            if (menu && !menu.classList.contains('hidden') && !logo.contains(e.target)) {
+            // FIX: logo может не существовать в DOM — проверяем перед .contains()
+            if (menu && !menu.classList.contains('hidden') && (!logo || !logo.contains(e.target))) {
                 menu.classList.add('hidden');
             }
         });
@@ -1175,15 +1244,17 @@
     changeCashier: () => {
         if (!confirm('Сменить кассира? Текущая сессия будет завершена.')) return;
         document.getElementById('pos-user-menu')?.classList.add('hidden');
-        // Instant logout via AJAX + redirect to /apos/
-        window.location.href = POS_API_URL + '?action=avoska_pos_change_cashier';
+        // FIX #5: Передаём nonce для CSRF-защиты (отдельный нонс для смены кассира)
+        const nonce = (typeof POS_CHANGE_CASHIER_NONCE !== 'undefined') ? POS_CHANGE_CASHIER_NONCE : '';
+        window.location.href = POS_API_URL + '?action=avoska_pos_change_cashier&_wpnonce=' + nonce;
     },
 
     logout: () => {
         if (!confirm('Выход из POS?')) return;
         document.getElementById('pos-user-menu')?.classList.add('hidden');
-        // Instant logout via AJAX + redirect to homepage
-        window.location.href = POS_API_URL + '?action=avoska_pos_logout';
+        // FIX #5: Передаём nonce для CSRF-защиты
+        const nonce = (typeof POS_LOGOUT_NONCE !== 'undefined') ? POS_LOGOUT_NONCE : '';
+        window.location.href = POS_API_URL + '?action=avoska_pos_logout&_wpnonce=' + nonce;
     },
 
     openEditTotal: () => {
@@ -1202,7 +1273,8 @@
         if (isNaN(newTotal) || newTotal < 0) return;
 
         const cart = POS.getActiveCart();
-        const currentTotal = cart.items.reduce((s, i) => s + (itemTotal = i.price * i.qty, itemTotal), 0);
+        // FIX #3: Убрана глобальная переменная itemTotal через побочный эффект
+        const currentTotal = cart.items.reduce((s, i) => s + i.price * i.qty, 0);
 
         if (currentTotal > 0) {
             const factor = newTotal / currentTotal;
@@ -1248,10 +1320,10 @@
                              onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" 
                              onmouseout="this.style.transform=''; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'">
                             <div style="display:flex; align-items:center; gap:12px;">
-                                <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg, #3498db, #2980b9); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:16px; flex-shrink:0;">${c.name.charAt(0).toUpperCase()}</div>
+                                <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg, #3498db, #2980b9); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:16px; flex-shrink:0;">${POS.esc(c.name.charAt(0).toUpperCase())}</div>
                                 <div>
-                                    <div style="font-weight:600; color:#2c3e50;">${c.name}</div>
-                                    <div style="font-size:12px; color:#95a5a6;">${c.email}</div>
+                                    <div style="font-weight:600; color:#2c3e50;">${POS.esc(c.name)}</div>
+                                    <div style="font-size:12px; color:#95a5a6;">${POS.esc(c.email)}</div>
                                 </div>
                             </div>
                         </div>
@@ -1260,8 +1332,8 @@
                     const list = document.getElementById('customer-results-list');
                     list.innerHTML = results.map(c => `
                         <div class="customer-row-item" onclick="POS.setCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})">
-                            <strong>${c.name}</strong><br>
-                            <small>${c.email}</small>
+                            <strong>${POS.esc(c.name)}</strong><br>
+                            <small>${POS.esc(c.email)}</small>
                         </div>
                     `).join('');
                 }
@@ -1348,13 +1420,13 @@
                         <div class="staff-card" onclick="POS.setCustomer(${JSON.stringify(u).replace(/"/g, '&quot;')}); switchView('register')" 
                              style="padding:15px; background:#fff; border:1px solid #eee; border-left:4px solid ${roleColors[role]}; border-radius:8px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.1); transition:transform 0.2s;">
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <img src="${u.avatar_url || ''}" alt="${u.name}" 
+                                <img src="${u.avatar_url || ''}" alt="${POS.esc(u.name)}" 
                                      style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid ${roleColors[role]};"
                                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                <div style="width:40px; height:40px; border-radius:50%; background:${roleColors[role]}; color:#fff; display:none; align-items:center; justify-content:center; font-weight:bold; font-size:16px; flex-shrink:0;">${u.name.charAt(0).toUpperCase()}</div>
+                                <div style="width:40px; height:40px; border-radius:50%; background:${roleColors[role]}; color:#fff; display:none; align-items:center; justify-content:center; font-weight:bold; font-size:16px; flex-shrink:0;">${POS.esc(u.name.charAt(0).toUpperCase())}</div>
                                 <div>
-                                    <div style="font-weight:bold; color:#2c3e50;">${u.name}</div>
-                                    <div style="font-size:11px; color:#7f8c8d;">${u.email}</div>
+                                    <div style="font-weight:bold; color:#2c3e50;">${POS.esc(u.name)}</div>
+                                    <div style="font-size:11px; color:#7f8c8d;">${POS.esc(u.email)}</div>
                                 </div>
                             </div>
                         </div>
@@ -1479,7 +1551,7 @@
             if (itemsArr.length > 0) {
                 // Copy functionality added to item names
                 itemSummary = itemsArr.map(i =>
-                    `<span class="copy-item" onclick="POS.copyToClipboard(this, '${i.name.replace(/'/g, "\\'")}')" title="Click to copy">${i.qty} x ${i.name}</span>`
+                    `<span class="copy-item" onclick="POS.copyToClipboard(this, '${i.name.replace(/'/g, "\\'")}')" title="Click to copy">${POS.esc(i.qty)} x ${POS.esc(i.name)}</span>`
                 ).join('<br>');
                 itemCount = itemsArr.reduce((s, i) => s + parseFloat(i.qty), 0);
             }
@@ -1490,7 +1562,7 @@
             return `
             <tr class="${rowClass}">
                 <td><a href="/wp-admin/admin.php?page=wc-orders&action=edit&id=${o.id}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:bold;">#${o.id}</a></td>
-                <td>${o.customer || POS.t('guest_label')}</td>
+                <td>${POS.esc(o.customer) || POS.t('guest_label')}</td>
                 <td><span class="status-badge ${statusStr}">${statusStr}</span></td>
                 <td>
                     <button class="history-spoiler-btn" onclick="document.getElementById('${spoilerId}').classList.toggle('visible')">
@@ -1501,8 +1573,8 @@
                     </div>
                 </td>
                 <td>${o.date}</td>
-                <td>${o.cashier || '-'}</td>
-                <td style="font-weight:bold;">${o.payment_method} / $${parseFloat(o.total).toFixed(0)}</td>
+                <td>${POS.esc(o.cashier) || '-'}</td>
+                <td style="font-weight:bold;">${POS.esc(o.payment_method)} / $${parseFloat(o.total).toFixed(0)}</td>
                 <td>
                     <button class="btn-print-mini" onclick="POS.reprintOrder(${JSON.stringify(o).replace(/"/g, '&quot;')})" style="cursor:pointer; border:none; background:none; font-size:16px;" title="${POS.t('history_reprint')}">🖨️</button>
                 </td>
@@ -1543,25 +1615,6 @@
 
         // Prevent spoiler/row clicks if any
         if (window.event) window.event.stopPropagation();
-    },
-
-    calculateChartData: (orders) => {
-        // Legacy — kept for compatibility, but weekly data now comes from PHP API
-        const stats = {};
-        const today = new Date();
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(today);
-            d.setDate(today.getDate() - i);
-            const key = d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
-            stats[key] = 0;
-        }
-        orders.forEach(o => {
-            const dateKey = o.full_date.split(' ')[0];
-            if (stats.hasOwnProperty(dateKey)) {
-                stats[dateKey] += o.total;
-            }
-        });
-        return stats;
     },
 
     renderChart: (weeklyData) => {
@@ -1631,13 +1684,19 @@
             '#9b59b6'  // Sat — фиолетовый
         ];
 
-        // Calculate current 30-min bucket index for today
-        const now = new Date();
-        const currentBucket = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
-        // Chart shows buckets 18..42 (09:00..21:00), so index in sliced array = currentBucket - 18
-        const currentSliceIdx = currentBucket - 18;
-
         let todayDataset = null;
+
+        // Determine schedule range from POS_SCHEDULE
+        let startSlice = 18; // default 09:00
+        let endSlice   = 42; // default 21:00
+        if (typeof POS_SCHEDULE !== 'undefined') {
+            const [sh, sm] = POS_SCHEDULE.start.split(':').map(Number);
+            const [eh, em] = POS_SCHEDULE.end.split(':').map(Number);
+            startSlice = sh * 2 + (sm >= 30 ? 1 : 0);
+            endSlice   = eh * 2 + (em >= 30 ? 1 : 0);
+        }
+
+        const isOvernight = startSlice > endSlice;
 
         keys.forEach((k) => {
             const date = new Date(k + 'T12:00:00');
@@ -1645,10 +1704,31 @@
             const label = dayNames[dayIndex] + ' ' + k.split('-')[2];
             const hourlyArr = weeklyData[k].hourly || new Array(48).fill(0);
 
-            // Slice to 09:00–21:00 (buckets 18..42 inclusive = 25 points)
-            const slicedData = hourlyArr.slice(18, 43);
+            // Slice to schedule range, handling overnight
+            let slicedData = [];
+            if (isOvernight) {
+                slicedData = hourlyArr.slice(startSlice, 48).concat(hourlyArr.slice(0, endSlice + 1));
+            } else {
+                slicedData = hourlyArr.slice(startSlice, endSlice + 1);
+            }
 
             const isToday = (k === todayKey);
+
+            // For today: calculate current bucket relative to slice start
+            const now = new Date();
+            const currentBucket = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+            
+            let currentSliceIdx = -1;
+            if (isOvernight) {
+                // If it's overnight, check if "now" is in the start-to-midnight part or midnight-to-end part
+                if (currentBucket >= startSlice) {
+                    currentSliceIdx = currentBucket - startSlice;
+                } else if (currentBucket <= endSlice) {
+                    currentSliceIdx = (48 - startSlice) + currentBucket;
+                }
+            } else {
+                currentSliceIdx = currentBucket - startSlice;
+            }
 
             // For today: trim data after the current time so the line doesn't drop to 0
             if (isToday && currentSliceIdx >= 0 && currentSliceIdx < slicedData.length) {
@@ -1685,12 +1765,25 @@
         // Push today last so it appears at the end of the legend
         if (todayDataset) datasets.push(todayDataset);
 
-        // Generate labels: 09:00, 09:30, 10:00 ... 21:00
+        // Generate labels from schedule
         const labels = [];
-        for (let i = 18; i <= 42; i++) {
-            const h = Math.floor(i / 2);
-            const m = (i % 2 === 0) ? '00' : '30';
-            labels.push(`${h}:${m}`);
+        if (isOvernight) {
+            for (let i = startSlice; i < 48; i++) {
+                const h = Math.floor(i / 2);
+                const m = (i % 2 === 0) ? '00' : '30';
+                labels.push(`${h}:${m}`);
+            }
+            for (let i = 0; i <= endSlice; i++) {
+                const h = Math.floor(i / 2);
+                const m = (i % 2 === 0) ? '00' : '30';
+                labels.push(`${h}:${m}`);
+            }
+        } else {
+            for (let i = startSlice; i <= endSlice; i++) {
+                const h = Math.floor(i / 2);
+                const m = (i % 2 === 0) ? '00' : '30';
+                labels.push(`${h}:${m}`);
+            }
         }
 
         POS.hourlyChartInstance = new Chart(ctx, {
@@ -1721,16 +1814,8 @@
         });
     },
 
-    sendReport: async (type) => {
-        if (type === 'hourly') {
-            const el = document.querySelector('.report-chart-placeholder');
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
-        }
-
-        // Placeholder for future email sending logic since the PHP endpoint isn't fully set up yet
-        alert('Функция отправки email находится в разработке.');
-    },
+    // FIX #1: Удалён мёртвый sendReport (заглушка с alert).
+    // Реальный sendReport находится на стр. 2793 и используется JS-объектом.
 
     updateSidebarStats: (orders) => {
         const now = new Date();
@@ -1741,7 +1826,7 @@
         const count = todaysOrders.length;
 
         const totalEl = document.getElementById('sb-today-total');
-        if (totalEl) totalEl.textContent = '$' + totalValue.toFixed(0);
+        if (totalEl) totalEl.textContent = POS.formatPrice(totalValue);
 
         const countEl = document.getElementById('sb-today-count');
         if (countEl) countEl.textContent = count;
@@ -1751,13 +1836,10 @@
         if (repCount) repCount.textContent = count;
 
         const repTotal = document.getElementById('rep-total');
-        if (repTotal) repTotal.textContent = '$' + totalValue.toFixed(0);
+        if (repTotal) repTotal.textContent = POS.formatPrice(totalValue);
 
         const methodCounts = todaysOrders.reduce((acc, o) => {
             let m = o.payment_method || 'Other';
-            if (m.toLowerCase().includes('usdt')) {
-                m = 'Оплата USDT:';
-            }
             acc[m] = (acc[m] || 0) + o.total;
             return acc;
         }, {});
@@ -1767,11 +1849,22 @@
 
         const repMethods = document.getElementById('rep-methods');
         if (repMethods) {
-            let methodsHtml = Object.entries(methodCounts).map(([m, val]) => `
+            let methodsHtml = Object.entries(methodCounts).map(([m, val]) => {
+                // For USDT: convert ARS → USDT using live rate
+                let extra = '';
+                const mLower = m.toLowerCase();
+                if (mLower.includes('usdt') && POS.rates && POS.rates.cripto && POS.rates.cripto.compra) {
+                    const rate = POS.rates.cripto.compra;
+                    const margin = 1.03;
+                    const usdt = (val / rate) * margin;
+                    extra = ` <span style="color:#8e44ad; font-size:11px;">(≈ ${usdt.toFixed(1)} USDT)</span>`;
+                }
+                return `
                 <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:13px;">
-                    <span>${m}</span> <b>${POS.formatPrice(val)}</b>
+                    <span>${m}${extra}</span> <b>${POS.formatPrice(val)}</b>
                 </div>
-            `).join('');
+            `;
+            }).join('');
 
             if (totalShipping > 0) {
                 methodsHtml += `
@@ -1789,7 +1882,7 @@
                 <tr>
                     <td><a href="/wp-admin/admin.php?page=wc-orders&action=edit&id=${o.id}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:bold;">#${o.id}</a></td>
                     <td>${o.date}</td>
-                    <td style="font-weight:bold;">$${o.total.toFixed(0)}</td>
+                    <td style="font-weight:bold;">${POS.formatPrice(o.total)}</td>
                 </tr>
             `).join('');
         }
@@ -1803,10 +1896,17 @@
 
         const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-        // Shift logic: 9:00 to 21:00
-        const endHour = 21;
+        // Read shift hours from POS_SCHEDULE (set by PHP from admin settings)
+        let startHour = 9, endHour = 21;
+        if (typeof POS_SCHEDULE !== 'undefined') {
+            startHour = parseInt(POS_SCHEDULE.start.split(':')[0]);
+            endHour   = parseInt(POS_SCHEDULE.end.split(':')[0]);
+        }
+
+        const schedLabel = `(${POS.lang === 'RU' ? 'график' : 'horario'} ${POS_SCHEDULE?.start || '09:00'} - ${POS_SCHEDULE?.end || '21:00'})`;
+
         let diffStr = '';
-        if (now.getHours() < endHour && now.getHours() >= 9) {
+        if (now.getHours() < endHour && now.getHours() >= startHour) {
             const diffMs = (new Date().setHours(endHour, 0, 0, 0)) - now.getTime();
             const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
             const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -1816,11 +1916,15 @@
             diffStr = POS.lang === 'RU' ? '(смена окончена)' : '(cerrado)';
         }
 
-        const sched = POS.lang === 'RU' ? '(график 9:00 - 21:00)' : '(horario 9:00 - 21:00)';
-
         const display = document.getElementById('shift-time-display');
         if (display) {
-            display.textContent = `${dayName} ${timeStr} ${diffStr} ${sched} `;
+            // Apply admin setting: hide shift row if POS_HIDE_SHIFT is true
+            if (typeof POS_HIDE_SHIFT !== 'undefined' && POS_HIDE_SHIFT) {
+                display.style.display = 'none';
+            } else {
+                display.style.display = '';
+                display.textContent = `${dayName} ${timeStr} ${diffStr} ${schedLabel} `;
+            }
         }
     },
 
@@ -1943,6 +2047,14 @@
     // --- PAY & CHECKOUT ---
     openCheckout: () => {
         console.log('[POS] openCheckout called');
+        // FIX: Блокировка нового чекаута пока предыдущий заказ ещё обрабатывается
+        if (POS.isProcessing) {
+            POS.showStatusMessage(
+                POS.lang === 'RU' ? '⏳ Предыдущий заказ ещё обрабатывается...' : '⏳ Previous order still processing...',
+                '#e67e22'
+            );
+            return;
+        }
         try {
             const cart = POS.getActiveCart();
             // console.log('[POS] cart:', cart);
@@ -1967,8 +2079,8 @@
                 row.style.marginBottom = '5px';
                 row.style.fontSize = '14px';
                 row.innerHTML = `
-                    <span>${item.qty} x ${item.name}</span>
-                    <span>${POS.formatPrice(item.price * item.qty)}</span>
+                    <span style="flex: 1; padding-right: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${POS.esc(item.qty)} x ${POS.esc(item.name)}</span>
+                    <span style="white-space: nowrap; font-weight: 600;">${POS.formatPrice(item.price * item.qty)}</span>
                 `;
                 list.appendChild(row);
             });
@@ -1989,6 +2101,24 @@
 
             const modal = document.getElementById('modal-checkout');
             if (modal) {
+                if (!modal.dataset.draggableInit) {
+                    const dragTarget = modal.querySelector('.checkout-modal');
+                    const dragHandle = modal.querySelector('.cm-left h3');
+                    if (dragHandle && dragTarget) {
+                        POS.makeDraggable(dragTarget, dragHandle);
+                        dragHandle.title = 'Перетащить';
+                    }
+                    modal.dataset.draggableInit = 'true';
+                }
+
+                const target = modal.querySelector('.checkout-modal');
+                if (target) {
+                    target.style.position = '';
+                    target.style.left = '';
+                    target.style.top = '';
+                    target.style.margin = '';
+                }
+
                 modal.classList.remove('hidden');
                 modal.style.display = 'flex'; // FORCE DISPLAY
             }
@@ -2018,7 +2148,7 @@
 
             const usdtDetails = document.getElementById('pm-usdt-details');
             if (usdtDetails) {
-                if (method === 'usdt') {
+                if (method === 'usdt_transfer') {
                     usdtDetails.classList.remove('hidden');
                     // Setup initial values
                     POS.calcUsdtChange(true);
@@ -2110,6 +2240,7 @@
     submitOrder: async () => {
         if (POS.isProcessing) return; // Prevent double click
 
+        const processingCartId = POS.activeCartId; // FIX: Запомнить ID корзины до отправки
         const cart = POS.getActiveCart();
         if (cart.items.length === 0) {
             POS.showStatusMessage(POS.lang === 'RU' ? 'Корзина пуста!' : 'Cart Empty!', '#e74c3c');
@@ -2135,7 +2266,7 @@
         let tendered = 0;
         let change = 0;
 
-        if (POS.paymentMethod === 'usdt') {
+        if (POS.paymentMethod === 'usdt_transfer') {
             tendered = parseFloat(document.getElementById('pm-usdt-tendered').value) || 0;
             change = parseFloat(document.getElementById('usdt-change-usd').textContent) || 0;
         } else {
@@ -2160,7 +2291,8 @@
 
             const res = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                // FIX критич.: X-WP-Nonce заголовок для проверки nonce на PHP-стороне
+                headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': POS_NONCE },
                 body: JSON.stringify(orderData)
             });
 
@@ -2183,15 +2315,19 @@
                 // Play Success Sound
                 POS.playSuccess();
 
-                // Remove cart if there are multiple, else clear it
-                if (POS.carts.length > 1) {
-                    const idx = POS.carts.findIndex(c => c.id === POS.activeCartId);
-                    POS.carts = POS.carts.filter(c => c.id !== POS.activeCartId);
-                    const newIdx = Math.max(0, idx - 1);
-                    POS.activeCartId = POS.carts[newIdx].id;
-                } else {
-                    cart.items = [];
-                    cart.customer = null;
+                // FIX: Очистить именно ту корзину, которую отправляли (не текущую активную!)
+                // Это предотвращает дублирование если кассир закрыл модалку и переключился
+                const targetCart = POS.carts.find(c => c.id === processingCartId);
+                if (targetCart) {
+                    if (POS.carts.length > 1) {
+                        POS.carts = POS.carts.filter(c => c.id !== processingCartId);
+                        if (POS.activeCartId === processingCartId) {
+                            POS.activeCartId = POS.carts[0].id;
+                        }
+                    } else {
+                        targetCart.items = [];
+                        targetCart.customer = null;
+                    }
                 }
 
                 POS.saveState();
@@ -2260,7 +2396,7 @@
                 orderData.items.forEach(item => {
                     itemsHtml += `
                         <tr style="border-bottom:1px solid #f0f0f0;">
-                            <td style="padding:6px 0; font-size:14px; color:#2c3e50; white-space:nowrap; vertical-align:top;">${item.qty} × ${item.name}</td>
+                            <td style="padding:6px 0; font-size:14px; color:#2c3e50; white-space:nowrap; vertical-align:top;">${POS.esc(item.qty)} × ${POS.esc(item.name)}</td>
                             <td style="padding:6px 0; font-size:14px; color:#2c3e50; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; vertical-align:top; padding-left:15px;">${POS.formatPrice(item.price * item.qty)}</td>
                         </tr>
                     `;
@@ -2463,6 +2599,41 @@
     },
     closeModal: (id) => document.getElementById(id).classList.add('hidden'),
 
+    makeDraggable: (el, handle) => {
+        let isDragging = false;
+        let startX, startY, initialX, initialY;
+
+        handle.style.cursor = 'move';
+        handle.style.userSelect = 'none';
+
+        handle.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = el.getBoundingClientRect();
+            initialX = rect.left;
+            initialY = rect.top;
+            el.style.position = 'fixed';
+            el.style.margin = '0';
+            el.style.left = initialX + 'px';
+            el.style.top = initialY + 'px';
+            e.preventDefault(); // prevent text selection
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            el.style.left = (initialX + dx) + 'px';
+            el.style.top = (initialY + dy) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    },
+
     // --- PRODUCT EDITOR ---
     editingProductId: null,
 
@@ -2492,8 +2663,8 @@
             <div class="pe-result-card ${POS.editingProductId === p.id ? 'active' : ''}" onclick="POS.selectProductForEdit(${p.id})">
                 <img src="${p.image || ''}" onerror="this.style.display='none'">
                 <div>
-                    <div class="pe-result-name">${p.name}</div>
-                    <div class="pe-result-meta">SKU: ${p.sku || '—'} | EAN: ${p.ean || '—'} | $${(p.price || 0).toFixed(0)} | Stock: ${p.stock ?? '—'}</div>
+                    <div class="pe-result-name">${POS.esc(p.name)}</div>
+                    <div class="pe-result-meta">SKU: ${POS.esc(p.sku || '—')} | EAN: ${POS.esc(p.ean || '—')} | $${(p.price || 0).toFixed(0)} | Stock: ${p.stock ?? '—'}</div>
                 </div>
             </div>
         `).join('');
@@ -2523,13 +2694,14 @@
         document.getElementById('pe-cost').value = p.cost || 0;
         document.getElementById('pe-stock').value = p.stock != null ? p.stock : '';
         document.getElementById('pe-ean').value = p.ean || '';
+        POS.updateMarginDisplay();
 
         // Category dropdown
         const catSel = document.getElementById('pe-category');
         catSel.innerHTML = `<option value="">${dict.edit_no_category}</option>`;
         POS.filterData.categories.forEach(c => {
             const selected = (p.cat_ids && p.cat_ids.includes(c.id)) ? 'selected' : '';
-            catSel.innerHTML += `<option value="${c.id}" ${selected}>${c.name}</option>`;
+            catSel.innerHTML += `<option value="${c.id}" ${selected}>${POS.esc(c.name)}</option>`;
         });
 
         // Brand dropdown
@@ -2537,7 +2709,7 @@
         bSel.innerHTML = `<option value="">${dict.edit_no_brand}</option>`;
         POS.filterData.brands.forEach(b => {
             const selected = (p.brand_ids && p.brand_ids.includes(b.id)) ? 'selected' : '';
-            bSel.innerHTML += `<option value="${b.id}" ${selected}>${b.name}</option>`;
+            bSel.innerHTML += `<option value="${b.id}" ${selected}>${POS.esc(b.name)}</option>`;
         });
 
         // Tag dropdown
@@ -2545,7 +2717,7 @@
         tSel.innerHTML = `<option value="">${dict.edit_no_tag}</option>`;
         POS.filterData.tags.forEach(t => {
             const selected = (p.tag_ids && p.tag_ids.includes(t.id)) ? 'selected' : '';
-            tSel.innerHTML += `<option value="${t.id}" ${selected}>${t.name}</option>`;
+            tSel.innerHTML += `<option value="${t.id}" ${selected}>${POS.esc(t.name)}</option>`;
         });
 
         // Visibility dropdown
@@ -2643,6 +2815,23 @@
         if (form) form.style.display = 'none';
         const status = document.getElementById('pe-save-status');
         if (status) status.textContent = '';
+    },
+
+    updateMarginDisplay: () => {
+        const price = parseFloat(document.getElementById('pe-regular-price').value) || 0;
+        const cost = parseFloat(document.getElementById('pe-cost').value) || 0;
+        const el = document.getElementById('pe-margin-display');
+        if (!el) return;
+        if (cost <= 0 || price <= 0) {
+            el.textContent = '—';
+            el.style.color = '#aaa';
+            el.style.borderColor = '#eee';
+            return;
+        }
+        const margin = ((price - cost) / cost) * 100;
+        el.textContent = (margin >= 0 ? '+' : '') + margin.toFixed(2) + ' %';
+        el.style.color = margin >= 0 ? '#27ae60' : '#e74c3c';
+        el.style.borderColor = margin >= 0 ? '#27ae60' : '#e74c3c';
     },
 
     // --- ORDER NOTES ---
@@ -2769,6 +2958,76 @@
             }
         }
     },
+    openMonthlyReportModal: () => {
+        const now = new Date();
+        // Pre-select current month/year
+        const monthSel = document.getElementById('monthly-report-month');
+        const yearInp  = document.getElementById('monthly-report-year');
+        if (monthSel) monthSel.value = now.getMonth() + 1;
+        if (yearInp)  yearInp.value  = now.getFullYear();
+
+        // Reset progress
+        const prog = document.getElementById('monthly-report-progress');
+        const bar  = document.getElementById('monthly-report-bar');
+        const stat = document.getElementById('monthly-report-status');
+        if (prog) prog.style.display = 'none';
+        if (bar)  bar.style.width = '0%';
+        if (stat) stat.textContent = 'Формирование отчёта...';
+
+        const btn = document.getElementById('btn-send-monthly');
+        if (btn) { btn.disabled = false; btn.textContent = '📧 Отправить'; }
+
+        const modal = document.getElementById('modal-monthly-report');
+        if (modal) { modal.classList.remove('hidden'); modal.style.display = 'flex'; }
+    },
+
+    sendMonthlyReport: async () => {
+        const month = document.getElementById('monthly-report-month')?.value;
+        const year  = document.getElementById('monthly-report-year')?.value;
+        if (!month || !year) return;
+
+        const btn  = document.getElementById('btn-send-monthly');
+        const prog = document.getElementById('monthly-report-progress');
+        const bar  = document.getElementById('monthly-report-bar');
+        const stat = document.getElementById('monthly-report-status');
+
+        // Show progress
+        if (prog) prog.style.display = 'block';
+        if (btn)  { btn.disabled = true; btn.textContent = '⏳ ...'; }
+        if (bar)  bar.style.width = '30%';
+        if (stat) stat.textContent = POS.lang === 'RU' ? 'Загрузка заказов...' : 'Cargando pedidos...';
+
+        try {
+            if (bar) bar.style.width = '60%';
+            if (stat) stat.textContent = POS.lang === 'RU' ? 'Формирование отчёта...' : 'Generando informe...';
+
+            const res = await fetch(POS_API_URL + '?action=avoska_pos_send_report', {
+                method: 'POST',
+                body: new URLSearchParams({
+                    action: 'avoska_pos_send_report',
+                    type: 'monthly',
+                    month: month,
+                    year: year
+                })
+            });
+            const data = await res.json();
+
+            if (bar) bar.style.width = '100%';
+
+            if (data.success) {
+                if (stat) { stat.textContent = '✅ ' + data.data.message; stat.style.color = '#27ae60'; }
+                if (btn) btn.textContent = '✅ Отправлено';
+                setTimeout(() => POS.closeModal('modal-monthly-report'), 2500);
+            } else {
+                if (stat) { stat.textContent = '❌ ' + (data.data?.message || 'Ошибка'); stat.style.color = '#e74c3c'; }
+                if (btn) { btn.disabled = false; btn.textContent = '📧 Повторить'; }
+            }
+        } catch (e) {
+            if (stat) { stat.textContent = '❌ Ошибка сети: ' + e.message; stat.style.color = '#e74c3c'; }
+            if (btn) { btn.disabled = false; btn.textContent = '📧 Повторить'; }
+        }
+    },
+
     sendReport: async (type) => {
         if (!confirm(type === 'weekly' ? POS.t('report_confirm_weekly') : POS.t('report_confirm_daily'))) return;
 
@@ -2800,7 +3059,8 @@
             alert('❌ Network Error: ' + e.message);
         }
     },
-    initLang: () => { POS.applyLang(); },
+    // FIX #2: Удалён дублированный initLang (здесь был initLang: () => POS.applyLang())
+    // Он перезаписывал оригинальный initLang с URL-параметром ?lang=ES, ломая смену языка.
     initResizer: () => {
         const resizer = document.getElementById('pos-resizer');
         const cartCol = document.getElementById('col-cart');
